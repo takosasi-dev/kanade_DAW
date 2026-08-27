@@ -1,0 +1,8 @@
+build/
+.vs/
+.idea/
+*.user
+*.tmp
+*.ssproj.bak
+Media/
+*.pdb
