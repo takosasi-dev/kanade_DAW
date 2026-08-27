@@ -6,3 +6,4 @@ build/
 *.ssproj.bak
 Media/
 *.pdb
+*.exe
