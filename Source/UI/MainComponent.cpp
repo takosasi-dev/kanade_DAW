@@ -2,6 +2,7 @@
 #include "Core/Localisation.h"
 #include "Core/Settings.h"
 #include "Engine/AudioEngine.h"
+#include "IO/DawProject.h"
 #include "IO/FileIO.h"
 #include "Plugins/PluginManager.h"
 #include "UI/GenerateView.h"
@@ -837,6 +838,74 @@ namespace ss
             });
         }
 
+        void showDawProjectWarnings (const juce::StringArray& warnings)
+        {
+            if (warnings.isEmpty())
+                return;
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon,
+                                                    TRANS ("Some things could not be transferred"),
+                                                    warnings.joinIntoString ("\n"), TRANS ("OK"), &owner);
+        }
+
+        void exportDawProject()
+        {
+            if (ctx.project == nullptr || ctx.plugins == nullptr)
+                return;
+
+            chooser = std::make_unique<juce::FileChooser> (TRANS ("Export DAWproject"),
+                                                            ctx.settings->getProjectsFolder(), "*.dawproject");
+            chooser->launchAsync (juce::FileBrowserComponent::saveMode
+                                    | juce::FileBrowserComponent::canSelectFiles
+                                    | juce::FileBrowserComponent::warnAboutOverwriting,
+                                  [this] (const juce::FileChooser& fc)
+            {
+                auto file = fc.getResult();
+                if (file.getFullPathName().isEmpty() || ctx.project == nullptr) return;
+                file = file.withFileExtension ("dawproject");
+
+                juce::String error;
+                juce::StringArray warnings;
+                if (! io::exportDawProject (file, *ctx.project, *ctx.plugins, error, warnings))
+                {
+                    juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
+                                                            TRANS ("Export failed"), error, TRANS ("OK"), &owner);
+                    return;
+                }
+                showDawProjectWarnings (warnings);
+            });
+        }
+
+        void importDawProject()
+        {
+            if (ctx.project == nullptr || ctx.plugins == nullptr)
+                return;
+
+            chooser = std::make_unique<juce::FileChooser> (TRANS ("Import DAWproject"),
+                                                            juce::File(), "*.dawproject");
+            chooser->launchAsync (juce::FileBrowserComponent::openMode
+                                    | juce::FileBrowserComponent::canSelectFiles,
+                                  [this] (const juce::FileChooser& fc)
+            {
+                auto file = fc.getResult();
+                if (file.getFullPathName().isEmpty() || ctx.project == nullptr) return;
+
+                auto error = std::make_shared<juce::String>();
+                auto warnings = std::make_shared<juce::StringArray>();
+                bool ok = false;
+
+                performProjectEdit (*ctx.project, TRANS ("Import DAWproject"), [this, file, error, warnings, &ok]
+                {
+                    ok = io::importDawProject (file, *ctx.project, *ctx.plugins, *error, *warnings);
+                });
+
+                if (! ok)
+                    juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
+                                                            TRANS ("Import failed"), *error, TRANS ("OK"), &owner);
+                else
+                    showDawProjectWarnings (*warnings);
+            });
+        }
+
         void exportAudio()
         {
             if (ctx.project == nullptr || ctx.engine == nullptr)
@@ -1048,12 +1117,14 @@ namespace ss
                 menu.addSeparator();
                 menu.addCommandItem (&commands, CommandIDs::importAudio);
                 menu.addCommandItem (&commands, CommandIDs::importMidi);
+                menu.addCommandItem (&commands, CommandIDs::importDawProject);
                 menu.addSeparator();
                 {
                     juce::PopupMenu exportMenu;
                     exportMenu.addCommandItem (&commands, CommandIDs::exportMidi);
                     exportMenu.addCommandItem (&commands, CommandIDs::exportAudio);
                     exportMenu.addCommandItem (&commands, CommandIDs::exportMusicXml);
+                    exportMenu.addCommandItem (&commands, CommandIDs::exportDawProject);
                     menu.addSubMenu (TRANS ("Export"), exportMenu);
                 }
                 menu.addSeparator();
@@ -1173,8 +1244,8 @@ namespace ss
     {
         c.addArray (std::initializer_list<juce::CommandID> {
             CommandIDs::fileNew, CommandIDs::fileOpen, CommandIDs::fileSave, CommandIDs::fileSaveAs,
-            CommandIDs::importAudio, CommandIDs::importMidi,
-            CommandIDs::exportMidi, CommandIDs::exportAudio, CommandIDs::exportMusicXml,
+            CommandIDs::importAudio, CommandIDs::importMidi, CommandIDs::importDawProject,
+            CommandIDs::exportMidi, CommandIDs::exportAudio, CommandIDs::exportMusicXml, CommandIDs::exportDawProject,
             juce::StandardApplicationCommandIDs::undo, juce::StandardApplicationCommandIDs::redo,
             juce::StandardApplicationCommandIDs::del, juce::StandardApplicationCommandIDs::quit,
             CommandIDs::addAudioTrack, CommandIDs::addMidiTrack, CommandIDs::removeSelectedTrack,
@@ -1256,6 +1327,16 @@ namespace ss
 
             case CommandIDs::exportMusicXml:
                 info.setInfo (TRANS ("MusicXML..."), TRANS ("Export notation as MusicXML"), TRANS ("File"), 0);
+                info.setActive (hasProject);
+                break;
+
+            case CommandIDs::importDawProject:
+                info.setInfo (TRANS ("Import DAWproject..."), TRANS ("Import a .dawproject file"), TRANS ("File"), 0);
+                info.setActive (hasProject);
+                break;
+
+            case CommandIDs::exportDawProject:
+                info.setInfo (TRANS ("DAWproject..."), TRANS ("Export for Studio One, Bitwig, Cubase and other DAWs"), TRANS ("File"), 0);
                 info.setActive (hasProject);
                 break;
 
@@ -1454,6 +1535,8 @@ namespace ss
             case CommandIDs::exportMidi:  impl->exportMidi(); return true;
             case CommandIDs::exportAudio: impl->exportAudio(); return true;
             case CommandIDs::exportMusicXml: impl->exportMusicXml(); return true;
+            case CommandIDs::importDawProject: impl->importDawProject(); return true;
+            case CommandIDs::exportDawProject: impl->exportDawProject(); return true;
 
             case juce::StandardApplicationCommandIDs::quit:
                 if (auto* app = juce::JUCEApplication::getInstance())

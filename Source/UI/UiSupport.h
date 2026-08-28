@@ -33,7 +33,8 @@ namespace ss
             // New ids go on the END: the values are what the user's saved key
             // mappings refer to, so inserting one in the middle silently
             // repoints every shortcut after it.
-            toggleAutomation
+            toggleAutomation,
+            exportDawProject, importDawProject
         };
     }
 

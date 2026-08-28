@@ -8,6 +8,10 @@ namespace ss
         std::vector<std::pair<juce::String, juce::StringArray>> releaseNotes()
         {
             return {
+                { "0.3.0", juce::StringArray {
+                    TRANS ("Export and import DAWproject files, so you can move projects to and from Studio One, Bitwig, Cubase and other DAWs."),
+                    TRANS ("Tracks, buses, clips, VST3 plugin state, built-in effects, automation, and Session view scenes all carry over.")
+                } },
                 { "0.2.0", juce::StringArray {
                     TRANS ("Fixed a crash that could occur when opening a VST3 plugin's editor window."),
                     TRANS ("You can now save the current dock layout as the one KANADE DAW starts with."),
