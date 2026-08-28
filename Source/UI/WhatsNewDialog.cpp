@@ -8,6 +8,11 @@ namespace ss
         std::vector<std::pair<juce::String, juce::StringArray>> releaseNotes()
         {
             return {
+                { "0.2.0", juce::StringArray {
+                    TRANS ("Fixed a crash that could occur when opening a VST3 plugin's editor window."),
+                    TRANS ("You can now save the current dock layout as the one KANADE DAW starts with."),
+                    TRANS ("This What's New dialog.")
+                } },
                 { "0.1.0", juce::StringArray {
                     TRANS ("Initial public release."),
                     TRANS ("Audio and MIDI recording, editing, and mixing with VST3/AU plugin hosting."),

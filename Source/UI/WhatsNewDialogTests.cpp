@@ -27,7 +27,7 @@ public:
             expect (WhatsNew::shouldShow ("0.2.0", "0.1.0"), "a downgrade should still surface that version's notes");
         }
 
-        beginTest ("releaseNotes has a well-formed entry for the current 0.1.0 release");
+        beginTest ("releaseNotes has a well-formed entry for the current 0.2.0 release");
         {
             const auto notes = WhatsNew::releaseNotes();
             expect (! notes.empty());
@@ -35,11 +35,11 @@ public:
             bool found = false;
             for (const auto& entry : notes)
             {
-                if (entry.first != "0.1.0")
+                if (entry.first != "0.2.0")
                     continue;
 
                 found = true;
-                expect (! entry.second.isEmpty(), "0.1.0 must ship with at least one bullet point");
+                expect (! entry.second.isEmpty(), "0.2.0 must ship with at least one bullet point");
             }
             expect (found, "the current shipped version must have a release-notes entry");
         }
