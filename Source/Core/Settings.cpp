@@ -42,6 +42,12 @@ namespace ss
     juce::String Settings::getStartupBehaviour() const    { return props.getUserSettings()->getValue ("startup", "picker"); }
     void Settings::setStartupBehaviour (const juce::String& v) { props.getUserSettings()->setValue ("startup", v); }
 
+    juce::String Settings::getStartupDockLayoutName() const { return props.getUserSettings()->getValue ("startupDockLayout", {}); }
+    void Settings::setStartupDockLayoutName (const juce::String& v) { props.getUserSettings()->setValue ("startupDockLayout", v); }
+
+    juce::String Settings::getLastSeenVersion() const      { return props.getUserSettings()->getValue ("lastSeenVersion", {}); }
+    void Settings::setLastSeenVersion (const juce::String& v) { props.getUserSettings()->setValue ("lastSeenVersion", v); }
+
     double Settings::getDefaultBpm() const                { return props.getUserSettings()->getDoubleValue ("defaultBpm", 120.0); }
     void Settings::setDefaultBpm (double v)               { props.getUserSettings()->setValue ("defaultBpm", v); }
 

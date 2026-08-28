@@ -426,6 +426,52 @@ public:
             settings.deleteDockLayout (DockLayout::lastSessionLayoutName);
         }
 
+        beginTest ("resolveStartupLayoutName falls back to the last-session name when no override is set");
+        {
+            expectEquals (DockLayout::resolveStartupLayoutName ({}), DockLayout::lastSessionLayoutName);
+        }
+
+        beginTest ("resolveStartupLayoutName prefers a non-empty startup override over the last-session name");
+        {
+            expectEquals (DockLayout::resolveStartupLayoutName (DockLayout::startupLayoutName),
+                          DockLayout::startupLayoutName);
+            expectEquals (DockLayout::resolveStartupLayoutName ("Some Custom Layout"),
+                          juce::String ("Some Custom Layout"));
+        }
+
+        beginTest ("a Settings-configured startup layout resolves to the layout the user actually saved");
+        {
+            Settings settings;
+
+            auto* obj = new juce::DynamicObject();
+            obj->setProperty ("type", "tabGroup");
+            juce::Array<juce::var> ids;
+            ids.add ("mixer");
+            obj->setProperty ("panels", ids);
+            obj->setProperty ("active", 0);
+            const juce::var startupLayout (obj);
+
+            settings.setDockLayout (DockLayout::startupLayoutName, startupLayout);
+            settings.setStartupDockLayoutName (DockLayout::startupLayoutName);
+
+            const auto resolvedName = DockLayout::resolveStartupLayoutName (settings.getStartupDockLayoutName());
+            expectEquals (resolvedName, DockLayout::startupLayoutName);
+
+            const auto reloaded = settings.getDockLayout (resolvedName);
+            expect (reloaded.isObject());
+            const auto* reloadedIds = reloaded.getProperty ("panels", {}).getArray();
+            expect (reloadedIds != nullptr && reloadedIds->size() == 1
+                    && (*reloadedIds)[0].toString() == "mixer",
+                    "resolving by name must land on the layout the user actually saved, not the last-session one");
+
+            settings.setStartupDockLayoutName ({});
+            settings.deleteDockLayout (DockLayout::startupLayoutName);
+
+            expectEquals (DockLayout::resolveStartupLayoutName (settings.getStartupDockLayoutName()),
+                          DockLayout::lastSessionLayoutName,
+                          "clearing the override must fall back to the last-session name again");
+        }
+
         beginTest ("DockContainer fires onPanelDraggedOutside when a drag ends without landing on any target");
         {
             auto group = std::make_unique<DockTabGroup>();

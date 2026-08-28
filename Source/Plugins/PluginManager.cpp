@@ -535,14 +535,29 @@ bool PluginManager::runScannerProcessIfRequested (const juce::String& commandLin
 
     /*  Kept alive for the life of the process: after this returns true the caller
         must skip all UI setup and just run the message loop.  The worker quits
-        the app itself when the coordinator goes away.                           */
-    static std::unique_ptr<ScannerWorker> worker;
-    worker = std::make_unique<ScannerWorker>();
+        the app itself when the coordinator goes away.
+
+        Deliberately never deleted (leaked, not unique_ptr): this process's
+        whole job is to scan one plugin and exit, so the OS reclaims
+        everything on process exit anyway. An atexit-time destructor here
+        would tear down the owned juce::AudioPluginFormatManager - including
+        any VST3 module still holding a Steinberg factory - and that races
+        static destruction order against JUCE's own
+        RefCountedDllHandle::getHandles() std::set in a DIFFERENT
+        translation unit (juce_VST3PluginFormat.cpp). C++ leaves cross-TU
+        static destruction order unspecified, and on this toolchain that set
+        was torn down first, so the plugin's teardown chain dereferenced an
+        already-freed std::set and crashed with 0xC0000005 (confirmed via
+        crash dump: RefCountedDllHandle::~RefCountedDllHandle -> std::set
+        erase on memory patterned 0xdddddddd, MSVC's freed-memory marker).  */
+    static ScannerWorker* worker = nullptr;
+    worker = new ScannerWorker();
 
     if (worker->initialiseFromCommandLine (commandLine, scannerUID))
         return true;
 
-    worker.reset();
+    delete worker;
+    worker = nullptr;
     return false;
 }
 

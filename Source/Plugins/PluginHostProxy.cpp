@@ -34,6 +34,33 @@ class PluginHostProxy::Coordinator final : private juce::ChildProcessCoordinator
 public:
     Coordinator() = default;
 
+    /*  Two-part fix for the same destruction race (confirmed via crash dump:
+        juce::MemoryBlock::operator= writing into an already-destroyed
+        `pendingReply` from InterprocessConnection's receive thread, racing
+        this object's own teardown):
+
+        1. `destroyed`, set here under `mutex` BEFORE anything else runs,
+           closes the gap killWorkerProcess() alone doesn't: the receive
+           thread can already be inside handleMessageFromWorker(), past the
+           `destroyed` check, by the time this destructor starts - blocking
+           on `mutex` is what makes that safe, since handleMessageFromWorker
+           also takes `mutex` before touching `pendingReply`. Once this
+           destructor has the lock and sets `destroyed`, any handler call
+           that arrives afterwards sees it and returns before touching a
+           single member.
+        2. killWorkerProcess() (base class, juce::ChildProcessCoordinator)
+           stops the connection's background receive thread entirely. C++
+           destroys a derived class's members BEFORE running the base class
+           destructor, so without calling this explicitly here first, the
+           receive thread could still be alive - and inside a
+           handleMessageFromWorker() call that started before `destroyed`
+           was set - while this object's own members below are torn down. */
+    ~Coordinator() override
+    {
+        { const std::lock_guard<std::mutex> lock (mutex); destroyed = true; }
+        killWorkerProcess();
+    }
+
     bool launch()
     {
         return launchWorkerProcess (juce::File::getSpecialLocation (juce::File::currentExecutableFile),
@@ -85,6 +112,19 @@ public:
             return WaitState::timeout;
 
         replyOut = std::move (pendingReply);
+
+        // juce::MemoryBlock's move-assign only moves `data`, leaving `size`
+        // behind unchanged (see juce_MemoryBlock.cpp) - so pendingReply is
+        // now `data == nullptr` but `size` still whatever it was. If the
+        // NEXT message happens to be the same size, MemoryBlock::setSize()
+        // sees `size == newSize` and no-ops instead of allocating, and the
+        // following memcpy writes into that nullptr `data` and crashes.
+        // Confirmed via crash dump (0xC0000005 in MemoryBlock::operator=,
+        // reproducible with any VST3 editor open - two same-sized replies
+        // in a row, e.g. back-to-back heartbeat acks, is enough to trigger
+        // it). Resetting here keeps pendingReply in a real empty state so
+        // the next setSize() always allocates.
+        pendingReply.reset();
         return WaitState::gotReply;
     }
 
@@ -92,6 +132,47 @@ private:
     void handleMessageFromWorker (const juce::MemoryBlock& message) override
     {
         std::unique_lock<std::mutex> lock (mutex);
+
+        if (destroyed)
+            return;
+
+        // editorResized is the ONLY message the worker ever sends unprompted
+        // (PluginHostProtocol.h) - unlike every response, it carries its own
+        // Cmd byte, and at exactly 9 bytes (Cmd + width + height) it doesn't
+        // collide with any response shape (the closest, openEditor's own
+        // response, is 10 bytes - see writeOpenEditorResponse). It can
+        // arrive at ANY time an editor is open, including while
+        // awaitingReply is true for a completely unrelated request - e.g.
+        // the OS can fire a synchronous resize the moment the worker's
+        // handleOpenEditor() calls editor->addToDesktop(), before that same
+        // call's own reply goes out. Must be checked and handled here,
+        // BEFORE the awaitingReply branch below, or it gets mistaken for
+        // whatever reply that branch is actually waiting on - confirmed via
+        // crash dump: this was corrupting `pendingReply` and crashing in
+        // juce::MemoryBlock::operator=, reproducible with any VST3 editor.
+        if (message.getSize() == 9)
+        {
+            juce::MemoryInputStream peek (message, false);
+
+            if (ss::hostproto::readCmd (peek) == ss::hostproto::Cmd::editorResized)
+            {
+                auto* o = owner;
+                auto flag = ownerAlive;
+                lock.unlock();
+
+                int width = 0, height = 0;
+                ss::hostproto::readEditorResizedPush (peek, width, height);
+
+                if (o != nullptr)
+                    juce::MessageManager::callAsync ([o, flag, width, height]
+                    {
+                        if (flag != nullptr && flag->load())
+                            o->handleRemoteEditorResize (width, height);
+                    });
+
+                return;
+            }
+        }
 
         if (awaitingReply)
         {
@@ -102,31 +183,8 @@ private:
             return;
         }
 
-        // Not waiting on anything: the only message a worker ever sends
-        // unprompted is the editorResized push (PluginHostProtocol.h) - unlike
-        // every response, it carries its own Cmd byte precisely so it can be
-        // told apart from a reply here.
-        auto* o = owner;
-        auto flag = ownerAlive;
-        lock.unlock();
-
-        if (message.getSize() == 0)
-            return;
-
-        juce::MemoryInputStream in (message, false);
-
-        if (ss::hostproto::readCmd (in) != ss::hostproto::Cmd::editorResized)
-            return;
-
-        int width = 0, height = 0;
-        ss::hostproto::readEditorResizedPush (in, width, height);
-
-        if (o != nullptr)
-            juce::MessageManager::callAsync ([o, flag, width, height]
-            {
-                if (flag != nullptr && flag->load())
-                    o->handleRemoteEditorResize (width, height);
-            });
+        // Anything else while not awaiting a reply is unexpected protocol
+        // noise - ignore rather than risk misinterpreting it.
     }
 
     void handleConnectionLost() override
@@ -136,6 +194,10 @@ private:
 
         {
             const std::lock_guard<std::mutex> lock (mutex);
+
+            if (destroyed)
+                return;
+
             connectionLostFlag = true;
             o = owner;
             flag = ownerAlive;
@@ -160,6 +222,7 @@ private:
     std::condition_variable condition;
     juce::MemoryBlock pendingReply;
     bool awaitingReply = false, gotReply = false, connectionLostFlag = false;
+    bool destroyed = false; // set under `mutex` by ~Coordinator() - see there
 };
 
 //==============================================================================

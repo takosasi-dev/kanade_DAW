@@ -38,4 +38,17 @@ namespace ss::DockLayout
         "whatever the layout looked like when the app last closed" - never
         shown to the user as a pickable named layout. */
     inline const juce::String lastSessionLayoutName = "__last__";
+
+    /** The reserved name for the user's "always start with this layout"
+        snapshot (View menu > Save current layout as startup default) -
+        same rules as lastSessionLayoutName, never shown as a pickable name. */
+    inline const juce::String startupLayoutName = "__startup__";
+
+    /** Which saved layout name buildUi() should look up at startup: the
+        user's chosen override if Settings has one, otherwise the existing
+        last-session behaviour. */
+    inline juce::String resolveStartupLayoutName (const juce::String& startupOverride)
+    {
+        return startupOverride.isNotEmpty() ? startupOverride : lastSessionLayoutName;
+    }
 }

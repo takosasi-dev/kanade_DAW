@@ -23,6 +23,18 @@ namespace ss
         int          getBackupGenerations() const;     void setBackupGenerations (int);
         juce::String getStartupBehaviour() const;      void setStartupBehaviour (const juce::String&); // new|last|picker
 
+        /** Named dock layout to apply on launch, or empty to restore whatever
+            the workspace looked like when the app last closed (the existing
+            default). Sits alongside the existing named-layout store
+            (getDockLayout/setDockLayout) - this just says which saved name,
+            if any, wins at startup. */
+        juce::String getStartupDockLayoutName() const; void setStartupDockLayoutName (const juce::String&);
+
+        /** Last app version the user has seen the "What's new" dialog for.
+            Empty means never shown (including a fresh install - the dialog
+            is skipped on first run so it isn't mistaken for a tutorial). */
+        juce::String getLastSeenVersion() const;       void setLastSeenVersion (const juce::String&);
+
         // project defaults
         double getDefaultBpm() const;                  void setDefaultBpm (double);
         double getDefaultSampleRate() const;           void setDefaultSampleRate (double);

@@ -3,6 +3,7 @@
 #include "Core/Localisation.h"
 #include "Plugins/PluginManager.h"
 #include "UI/MainComponent.h"
+#include "UI/WhatsNewDialog.h"
 #include <juce_gui_extra/juce_gui_extra.h>
 
 namespace ss
@@ -52,6 +53,24 @@ namespace ss
             setUiLanguage (context->settings->getLanguage());
 
             mainWindow = std::make_unique<MainWindow> (getApplicationName(), *context);
+
+            /*  Show once per update, never on a fresh install (see
+                WhatsNew::shouldShow). Recording the version happens either way -
+                a fresh install has nothing to show but still needs to stop
+                looking "unseen" for the next launch. callAsync so the dialog
+                attaches after MainWindow is fully constructed and visible,
+                rather than racing its construction.                            */
+            {
+                const auto currentVersion = getApplicationVersion();
+                const auto lastSeenVersion = context->settings->getLastSeenVersion();
+                context->settings->setLastSeenVersion (currentVersion);
+
+                if (WhatsNew::shouldShow (lastSeenVersion, currentVersion))
+                    juce::MessageManager::callAsync ([currentVersion]
+                    {
+                        WhatsNewDialog::launchForVersion (currentVersion);
+                    });
+            }
         }
 
         void shutdown() override

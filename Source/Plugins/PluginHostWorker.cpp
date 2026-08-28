@@ -600,14 +600,32 @@ bool PluginManager::runPluginHostProcessIfRequested (const juce::String& command
 
     /*  Kept alive for the life of the process: after this returns true the
         caller must skip all UI setup and just run the message loop. The
-        worker quits the app itself when the coordinator goes away.        */
-    static std::unique_ptr<HostWorker> worker;
-    worker = std::make_unique<HostWorker>();
+        worker quits the app itself when the coordinator goes away.
+
+        Deliberately never deleted (leaked, not unique_ptr): this process
+        hosts exactly one plugin instance and exits shortly after, so the OS
+        reclaims everything on process exit anyway. An atexit-time
+        destructor here would tear down the owned juce::AudioPluginInstance
+        (down through VST3PluginInstance -> VST3ComponentHolder ->
+        VST3ModuleHandle -> ReferenceCountedObjectPtr<RefCountedDllHandle>),
+        and that races static destruction order against JUCE's own
+        RefCountedDllHandle::getHandles() std::set in a DIFFERENT
+        translation unit (juce_VST3PluginFormat.cpp). C++ leaves cross-TU
+        static destruction order unspecified, and on this toolchain that set
+        was torn down first, so HostWorker's teardown chain dereferenced an
+        already-freed std::set and crashed with 0xC0000005 - this is the
+        "VST plugin crashes the DAW" bug: confirmed via crash dump showing
+        RefCountedDllHandle::~RefCountedDllHandle erasing itself from memory
+        patterned 0xdddddddd, MSVC's freed-memory marker, reached from this
+        function's own atexit destructor for `worker`.                     */
+    static HostWorker* worker = nullptr;
+    worker = new HostWorker();
 
     if (worker->initialiseFromCommandLine (commandLine, ss::hostproto::workerUID()))
         return true;
 
-    worker.reset();
+    delete worker;
+    worker = nullptr;
     return false;
 }
 

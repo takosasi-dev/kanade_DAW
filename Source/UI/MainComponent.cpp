@@ -223,9 +223,10 @@ namespace ss
                 { "session", TRANS ("Session") }, { "modular", TRANS ("Modular") }
             };
 
+            const auto layoutNameToUse = DockLayout::resolveStartupLayoutName (ctx.settings->getStartupDockLayoutName());
             const auto savedLayout = pendingLayoutOverride.isObject()
                                           ? pendingLayoutOverride
-                                          : ctx.settings->getDockLayout (DockLayout::lastSessionLayoutName);
+                                          : ctx.settings->getDockLayout (layoutNameToUse);
             auto restoredRoot = savedLayout.isObject()
                                      ? DockLayout::restore (savedLayout, panelsById, displayNamesById)
                                      : nullptr;
@@ -1105,6 +1106,9 @@ namespace ss
                 menu.addSeparator();
                 menu.addCommandItem (&commands, CommandIDs::zoomIn);
                 menu.addCommandItem (&commands, CommandIDs::zoomOut);
+                menu.addSeparator();
+                menu.addItem (20002, TRANS ("Save current layout as startup default"));
+                menu.addItem (20003, TRANS ("Reset startup layout (use last session instead)"));
                 break;
 
             case 5:
@@ -1138,6 +1142,23 @@ namespace ss
                   + TRANS ("AI music generation and transcription in a DAW. "
                            "Distributed free as a single edition."),
                 TRANS ("OK"), this);
+        else if (menuItemID == 20002)
+        {
+            if (impl->workspace != nullptr)
+                impl->ctx.settings->setDockLayout (DockLayout::startupLayoutName, impl->workspace->toVar());
+            impl->ctx.settings->setStartupDockLayoutName (DockLayout::startupLayoutName);
+
+            juce::AlertWindow::showMessageBoxAsync (
+                juce::MessageBoxIconType::InfoIcon,
+                TRANS ("Startup layout saved"),
+                TRANS ("KANADE DAW will use this dock layout every time it starts."),
+                TRANS ("OK"), this);
+        }
+        else if (menuItemID == 20003)
+        {
+            impl->ctx.settings->setStartupDockLayoutName ({});
+            impl->ctx.settings->deleteDockLayout (DockLayout::startupLayoutName);
+        }
     }
 
     //==========================================================================
