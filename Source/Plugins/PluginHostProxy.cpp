@@ -303,7 +303,17 @@ public:
         setSize (400, 300);
     }
 
-    ~PluginHostProxyEditor() override { owner.editorClosing(); }
+    ~PluginHostProxyEditor() override { if (ownerAlive) owner.editorClosing(); }
+
+    /** [called only from PluginHostProxy::~PluginHostProxy(), while `owner`
+        is still mid-destruction but its members are still intact - see the
+        call site] Marks `owner` as no longer safe to touch. A PluginWindow
+        can outlive the instance it was opened for (a track's whole plugin
+        chain gets torn down and rebuilt on any add/remove/reorder, not just
+        the edited slot), and without this, this editor's own destructor -
+        and juce::AudioProcessorEditor's, right behind it - would reach back
+        into a `processor` reference that's no longer a live object. */
+    void ownerDestroyed() noexcept { ownerAlive = false; }
 
     void parentHierarchyChanged() override
     {
@@ -358,7 +368,7 @@ public:
 private:
     PluginHostProxy& owner;
     juce::Label placeholder { {}, {} };
-    bool openRequested = false, opened = false, applyingRemoteResize = false;
+    bool openRequested = false, opened = false, applyingRemoteResize = false, ownerAlive = true;
 };
 
 //==============================================================================
@@ -390,7 +400,17 @@ PluginHostProxy::PluginHostProxy (const juce::PluginDescription& description, co
 
 PluginHostProxy::~PluginHostProxy()
 {
-    // First line, before anything else: any async callback already posted from
+    // First: if a PluginWindow's editor for this instance is still open (a
+    // track's whole chain rebuilds - and every instance on it is destroyed -
+    // on any add/remove/reorder, not just the slot actually being edited),
+    // tell it not to reach back into `this` from its own destructor later.
+    // Safe here specifically because we're still inside this destructor's
+    // body: every member below is still a live object at this point, even
+    // though `this` is mid-destruction.
+    if (activeEditor != nullptr)
+        activeEditor->ownerDestroyed();
+
+    // Next, before anything else: any async callback already posted from
     // the pipe's background thread (a push, a crash notice) checks this before
     // touching `this` once it actually runs on the message thread, so it can
     // never observe a half-destroyed object even if it raced the destructor.

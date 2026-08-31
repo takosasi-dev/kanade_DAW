@@ -8,6 +8,11 @@ namespace ss
         std::vector<std::pair<juce::String, juce::StringArray>> releaseNotes()
         {
             return {
+                { "0.5.1", juce::StringArray {
+                    TRANS ("Fixed effects that come after an instrument in a track's chain sometimes failing to open, or only playing the left channel."),
+                    TRANS ("Fixed a crash when replacing or reordering a plugin whose editor was still open."),
+                    TRANS ("Reparented plugin editors are nudged harder to fix a few more cases of a solid black window (e.g. some ZamAudio plugins).")
+                } },
                 { "0.5.0", juce::StringArray {
                     TRANS ("You can now reorder plugins and built-in effects within a track (Move up/down in the slot's right-click menu)."),
                     TRANS ("Pin your favourite plugins to the top of the Add plugin menu."),

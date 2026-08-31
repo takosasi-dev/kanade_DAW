@@ -473,17 +473,27 @@ namespace
                             SWP_NOZORDER | SWP_FRAMECHANGED);
             ::ShowWindow (editorHwnd, SW_SHOW);
 
-            // ponytail: editors that render through juce::OpenGLContext (ChowDSP
-            // plugins are a known case) come up solid black here - their GL swap
-            // chain is bound to the window at creation time and a raw SetParent
-            // doesn't tell the driver to rebind it. A 1px resize nudge forces a
-            // WM_SIZE, which is what those contexts use as their revalidation
-            // trigger. Upgrade path: detect GL-backed editors and explicitly
-            // detach/reattach their OpenGLContext instead of relying on this.
+            // ponytail: editors that render through an OpenGL (or similar GPU)
+            // context come up solid black here - their swap chain is bound to
+            // the window at creation time and a raw SetParent doesn't tell the
+            // driver to rebind it. juce::OpenGLContext (ChowDSP plugins are a
+            // known case) revalidates on WM_SIZE, so nudge the size by a pixel
+            // and back; other GL/GPU toolkits (e.g. plugins built with DPF -
+            // ZamAudio is a known case) haven't been confirmed to respond to
+            // that alone, so also nudge the position and force a full repaint
+            // through Win32 rather than relying on the window to schedule its
+            // own. Upgrade path: detect GL-backed editors and explicitly
+            // detach/reattach their context instead of relying on nudges.
             ::SetWindowPos (editorHwnd, nullptr, 0, 0, editor->getWidth() - 1, editor->getHeight(),
                             SWP_NOZORDER | SWP_NOMOVE);
             ::SetWindowPos (editorHwnd, nullptr, 0, 0, editor->getWidth(), editor->getHeight(),
                             SWP_NOZORDER | SWP_NOMOVE);
+            ::SetWindowPos (editorHwnd, nullptr, 1, 0, 0, 0,
+                            SWP_NOZORDER | SWP_NOSIZE);
+            ::SetWindowPos (editorHwnd, nullptr, 0, 0, 0, 0,
+                            SWP_NOZORDER | SWP_NOSIZE);
+            ::RedrawWindow (editorHwnd, nullptr, nullptr,
+                            RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW | RDW_ERASE);
            #else
             // ponytail: no Mac dev/test rig for this project - remoting an
             // NSView across processes needs private/XPC APIs that can't be

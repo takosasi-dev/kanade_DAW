@@ -1021,6 +1021,46 @@ public:
                     "should still release, not sustain forever");
         }
 
+        /*  Regression test: MixerView::showPluginEditor used to call
+            getPluginInstance() with the project's own track.plugins slot index -
+            but pluginFx is compacted (whichever slot became the instrument is
+            held separately, not left as a gap), so getPluginInstance() is a raw
+            position into that compacted array. For any effect slot after an
+            instrument slot, that either named the wrong plugin or returned
+            nullptr, showing "Plugin not loaded" for a plugin that had in fact
+            loaded fine. getPluginForSlot() is the slot-index-aware lookup that
+            already existed for exactly this (Mixer.cpp's own automation
+            resolution uses it) - this pins its behaviour down directly. */
+        beginTest ("getPluginForSlot resolves the correct instance when an instrument precedes an effect slot");
+        {
+            Settings settings;
+            PluginManager pluginManager (settings);
+            Mixer mixer (pluginManager);
+            mixer.prepare (48000.0, 512, 2);
+
+            Project project;
+            auto& track = project.addTrack (TrackType::midi, "Synth");
+            track.plugins.push_back ({ BasicSynth::identifier, "Instrument", false, true, {} });
+            track.plugins.push_back ({ BasicSynth::identifier, "Effect", false, false, {} });
+            const auto trackId = track.getId();
+
+            mixer.setProject (&project);
+            mixer.rebuild();
+
+            auto* strip = mixer.getStripForTrack (trackId);
+            expect (strip != nullptr);
+
+            if (strip != nullptr)
+            {
+                expect (strip->getPluginForSlot (0) == strip->getInstrument(),
+                        "slot 0 (the instrument) must resolve to getInstrument()");
+                expect (strip->getPluginForSlot (1) != nullptr,
+                        "slot 1 (the effect after the instrument) must still resolve to a live instance");
+                expect (strip->getPluginForSlot (1) != strip->getInstrument(),
+                        "the effect slot must not resolve to the instrument's instance");
+            }
+        }
+
         /*  Final-review regression: the loop-wrap fix above (addAllNotesOff at the
             wrap point) left two adjacent, identical defects unfixed - stopping a
             session clip, and replacing one with another on the same track, both

@@ -123,34 +123,64 @@ struct ChannelStrip::Impl
         pluginScratch.setSize (juce::jmax (1, fxChannels), blockSize, false, true, false);
     }
 
-    /** Runs a plugin whose bus layout is wider than the strip through a
-        pre-allocated scratch buffer, so the audio thread never resizes. */
+    /** Runs a plugin whose bus layout is wider OR narrower than the strip
+        through a pre-allocated scratch buffer, so the audio thread never
+        resizes either `buffer` or the plugin's own channel count. */
     void runPlugin (juce::AudioPluginInstance& inst, juce::AudioBuffer<float>& buffer,
                     juce::MidiBuffer& midi)
     {
         const auto n = buffer.getNumSamples();
+        const auto bufferChannels = buffer.getNumChannels();
         const auto needed = juce::jmax (inst.getTotalNumInputChannels(),
                                         inst.getTotalNumOutputChannels());
 
-        if (needed <= buffer.getNumChannels())
+        if (needed == bufferChannels)
         {
             inst.processBlock (buffer, midi);
             return;
         }
 
-        if (needed > pluginScratch.getNumChannels() || n > pluginScratch.getNumSamples())
+        if (needed <= 0 || needed > pluginScratch.getNumChannels() || n > pluginScratch.getNumSamples())
             return;
 
         juce::AudioBuffer<float> view (pluginScratch.getArrayOfWritePointers(), needed, n);
         view.clear();
 
-        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-            view.copyFrom (ch, 0, buffer, ch, 0, n);
+        if (needed > bufferChannels)
+        {
+            for (int ch = 0; ch < bufferChannels; ++ch)
+                view.copyFrom (ch, 0, buffer, ch, 0, n);
+
+            inst.processBlock (view, midi);
+
+            for (int ch = 0; ch < bufferChannels; ++ch)
+                buffer.copyFrom (ch, 0, view, ch, 0, n);
+
+            return;
+        }
+
+        // needed < bufferChannels: a mono (or otherwise narrower-than-the-
+        // strip) plugin. Calling processBlock() directly on the wider
+        // `buffer` used to leave every channel beyond the plugin's own bus
+        // width untouched by it - silent for a freshly-read/IPC'd buffer,
+        // since nothing else in the chain wrote to it either. Average every
+        // buffer channel down into the plugin's narrower width instead (so
+        // two full-scale channels folding together don't come out +6dB
+        // hot), run it there, then copy the result back out to every buffer
+        // channel so the effect actually reaches the whole width.
+        // ponytail: the averaging gain assumes each plugin channel receives
+        // the same number of buffer channels (true for the overwhelmingly
+        // common case here, mono-in-stereo); an uneven channel count would
+        // need a per-target-channel gain instead.
+        const auto gain = (float) needed / (float) bufferChannels;
+
+        for (int ch = 0; ch < bufferChannels; ++ch)
+            view.addFrom (ch % needed, 0, buffer, ch, 0, n, gain);
 
         inst.processBlock (view, midi);
 
-        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-            buffer.copyFrom (ch, 0, view, ch, 0, n);
+        for (int ch = 0; ch < bufferChannels; ++ch)
+            buffer.copyFrom (ch, 0, view, ch % needed, 0, n);
     }
 };
 

@@ -117,6 +117,14 @@ namespace ss
         /** Opens the generic editor for a built-in effect slot. */
         void showBuiltinFxEditor (TrackId, int slotIndex, int busId = 0);
 
+        /** Closes and destroys every open plugin-editor window for `track`.
+            Call this BEFORE committing a project edit that changes the
+            track's chain signature (add/remove/reorder a plugin) - that
+            rebuilds every plugin instance on the track, and a window left
+            open past that point would be holding a dangling reference to
+            an already-destroyed instance. Safe to call with none open. */
+        void closePluginWindowsForTrack (TrackId track);
+
         /** Preferences > General "Mixer meter redraw rate" - juce::Timer is a
             private base, so this is the settings-change hook's only way in. */
         void setRefreshHz (int hz) { startTimerHz (hz); }

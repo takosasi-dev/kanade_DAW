@@ -601,6 +601,14 @@ namespace ss
                 slot.identifier   = BasicSynth::identifier;
                 slot.displayName  = "KANADE DAW Basic Synth";
                 slot.isInstrument = true;
+                // Adding a slot changes the track's chain signature, so
+                // Mixer::rebuild() recreates every plugin instance on this
+                // track - including ones a still-open PluginWindow points at.
+                // Close those first, while their instances are still alive,
+                // rather than leaving MixerView::showPluginEditor to discover
+                // the staleness later and destroy a window whose editor would
+                // then reach back into an already-destroyed instance.
+                owner.closePluginWindowsForTrack (trackId);
                 commit (TRANS ("Add plugin"), [slot] (Track& t) { t.plugins.push_back (slot); });
             }
             else if (result >= 2000)
@@ -614,6 +622,7 @@ namespace ss
                     // Recorded now, from the description we actually picked, rather
                     // than guessed again at load time.
                     slot.isInstrument = descriptions[i].isInstrument;
+                    owner.closePluginWindowsForTrack (trackId);
                     commit (TRANS ("Add plugin"), [slot] (Track& t) { t.plugins.push_back (slot); });
                 }
             }
@@ -710,6 +719,10 @@ namespace ss
                 }
                 else
                 {
+                    // See the "Add plugin" comment above: reordering also
+                    // changes the chain signature, rebuilding every instance
+                    // on this track.
+                    owner.closePluginWindowsForTrack (trackId);
                     commit (TRANS ("Move plugin"), [ref, other] (Track& t)
                     {
                         if (ref.index >= 0 && ref.index < (int) t.plugins.size()
@@ -756,6 +769,13 @@ namespace ss
                 }
                 else
                 {
+                    // See the "Add plugin" comment above: removing a slot
+                    // also changes the chain signature, rebuilding every
+                    // instance on this track - this is the path that
+                    // originally surfaced the crash (remove, add a different
+                    // plugin, reopen: the reused window's editor reached
+                    // into its now-destroyed instance).
+                    owner.closePluginWindowsForTrack (trackId);
                     commit (TRANS ("Remove effect"), [ref] (Track& t)
                     {
                         if (ref.index < (int) t.plugins.size())
@@ -903,7 +923,7 @@ namespace ss
     public:
         PluginWindow (juce::AudioPluginInstance& p, TrackId t, int i)
             : DocumentWindow (p.getName(), palette().windowBg, juce::DocumentWindow::closeButton),
-              trackId (t), pluginIndex (i)
+              trackId (t), pluginIndex (i), instance (&p)
         {
             setUsingNativeTitleBar (true);
 
@@ -928,6 +948,12 @@ namespace ss
 
         TrackId trackId;
         int     pluginIndex;
+
+        /** Identity check only - never dereferenced. The instance this window
+            was built for may already have been destroyed by a rebuild (see
+            showPluginEditor's staleness check), so this exists purely to
+            detect that case by comparing addresses, not to be used itself. */
+        juce::AudioPluginInstance* instance;
     };
 
     //==============================================================================
@@ -1039,14 +1065,6 @@ namespace ss
 
     void MixerView::showPluginEditor (TrackId trackId, int pluginIndex)
     {
-        for (auto* w : pluginWindows)
-            if (w->trackId == trackId && w->pluginIndex == pluginIndex)
-            {
-                w->setVisible (true);
-                w->toFront (true);
-                return;
-            }
-
         if (ctx.engine == nullptr)
             return;
 
@@ -1054,7 +1072,38 @@ namespace ss
         if (strip == nullptr)
             return;
 
-        auto* instance = strip->getPluginInstance (pluginIndex);
+        // getPluginForSlot(), not getPluginInstance(): pluginIndex here is the
+        // project's own track.plugins index, and pluginFx is compacted (the
+        // slot that became the instrument is held separately, not left as a
+        // gap) - getPluginInstance() is a raw position into that compacted
+        // array and silently resolves to the wrong plugin, or nothing at all,
+        // for any effect slot that comes after an instrument slot.
+        auto* instance = strip->getPluginForSlot (pluginIndex);
+
+        // A cached window at this (trackId, pluginIndex) whose instance no
+        // longer matches is stale - the slot was removed and refilled (or
+        // reordered) since that window was opened, rebuilding every plugin
+        // instance on the track. Closing only ever hid these windows rather
+        // than deleting them, so without this check the old window (still
+        // showing the previous plugin's now-destroyed editor, under its old
+        // title) would be reused for whatever plugin occupies the slot now.
+        for (int i = pluginWindows.size(); --i >= 0;)
+        {
+            auto* w = pluginWindows.getUnchecked (i);
+
+            if (w->trackId == trackId && w->pluginIndex == pluginIndex)
+            {
+                if (w->instance == instance && instance != nullptr)
+                {
+                    w->setVisible (true);
+                    w->toFront (true);
+                    return;
+                }
+
+                pluginWindows.remove (i);
+            }
+        }
+
         if (instance == nullptr)
         {
             juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
@@ -1066,6 +1115,13 @@ namespace ss
         }
 
         pluginWindows.add (new PluginWindow (*instance, trackId, pluginIndex));
+    }
+
+    void MixerView::closePluginWindowsForTrack (TrackId track)
+    {
+        for (int i = pluginWindows.size(); --i >= 0;)
+            if (pluginWindows.getUnchecked (i)->trackId == track)
+                pluginWindows.remove (i);
     }
 
     void MixerView::paint (juce::Graphics& g)
