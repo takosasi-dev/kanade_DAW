@@ -8,6 +8,9 @@ namespace ss
         std::vector<std::pair<juce::String, juce::StringArray>> releaseNotes()
         {
             return {
+                { "0.5.2", juce::StringArray {
+                    TRANS ("Adding, removing or reordering a plugin no longer reloads every other plugin on the same track - just the slot that actually changed, so playback glitches less.")
+                } },
                 { "0.5.1", juce::StringArray {
                     TRANS ("Fixed effects that come after an instrument in a track's chain sometimes failing to open, or only playing the left channel."),
                     TRANS ("Fixed a crash when replacing or reordering a plugin whose editor was still open."),

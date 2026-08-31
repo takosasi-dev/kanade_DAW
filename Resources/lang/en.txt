@@ -514,6 +514,7 @@ countries: gb us au ca ie nz
 "True pk" = "True pk"
 "Unmuted" = "Unmuted"
 "What's new" = "What's new"
+"Adding, removing or reordering a plugin no longer reloads every other plugin on the same track - just the slot that actually changed, so playback glitches less." = "Adding, removing or reordering a plugin no longer reloads every other plugin on the same track - just the slot that actually changed, so playback glitches less."
 "Fixed effects that come after an instrument in a track's chain sometimes failing to open, or only playing the left channel." = "Fixed effects that come after an instrument in a track's chain sometimes failing to open, or only playing the left channel."
 "Fixed a crash when replacing or reordering a plugin whose editor was still open." = "Fixed a crash when replacing or reordering a plugin whose editor was still open."
 "Reparented plugin editors are nudged harder to fix a few more cases of a solid black window (e.g. some ZamAudio plugins)." = "Reparented plugin editors are nudged harder to fix a few more cases of a solid black window (e.g. some ZamAudio plugins)."

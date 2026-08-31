@@ -7,6 +7,8 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <deque>
+#include <map>
 
 namespace ss
 {
@@ -83,8 +85,10 @@ struct ChannelStrip::Impl
     int numChannels = stripChannels;
 
     std::unique_ptr<juce::AudioPluginInstance> instrument;
+    juce::String instrumentIdentifier;      // the slot.identifier `instrument` was created from
     std::vector<std::unique_ptr<BuiltinEffect>> builtinFx;
     std::vector<std::unique_ptr<juce::AudioPluginInstance>> pluginFx;
+    std::vector<juce::String> pluginIdentifier;  // pluginFx index -> the slot.identifier it was created from
     /*  Read on the audio thread and flipped live from the message thread, so the
         two ends meet through std::atomic_ref rather than a plain byte write. */
     std::vector<char> pluginBypassed;
@@ -311,8 +315,39 @@ void ChannelStrip::rebuildFrom (const Track& track)
 {
     auto& im = *impl;
 
+    /*  Reused-by-identifier pool, keyed by the exact slot.identifier string
+        each currently-loaded instance was created from - not re-derived
+        from instance->getPluginDescription(), which some plugin types
+        round-trip through a different string than the one actually used to
+        load them (BasicSynth's fixed identifier vs. its synthesised
+        PluginDescription, for one).
+
+        A slot whose identifier is untouched by this rebuild - every slot
+        except whichever one was actually added/removed/reordered - keeps
+        its live instance, and whatever runtime state it has accumulated
+        since it was last loaded, instead of the whole track being torn
+        down and every plugin reloaded from a possibly-stale slot.state
+        snapshot along with it (this used to make adding one effect to an
+        already-loaded chain audibly glitch while every other plugin on the
+        track respawned its worker process too). Queued per identifier
+        rather than a plain map, so two instances of the same plugin on one
+        track are matched one-to-one in their old relative order rather
+        than both collapsing onto whichever is found first. Whatever is
+        left unclaimed once every new slot has had a chance to match - a
+        genuinely removed plugin - is simply destroyed when `reusable`
+        goes out of scope. */
+    std::map<juce::String, std::deque<std::unique_ptr<juce::AudioPluginInstance>>> reusable;
+
+    if (im.instrument != nullptr)
+        reusable[im.instrumentIdentifier].push_back (std::move (im.instrument));
+
+    for (size_t i = 0; i < im.pluginFx.size(); ++i)
+        reusable[im.pluginIdentifier[i]].push_back (std::move (im.pluginFx[i]));
+
     im.instrument.reset();
+    im.instrumentIdentifier.clear();
     im.pluginFx.clear();
+    im.pluginIdentifier.clear();
     im.pluginBypassed.clear();
     im.pluginSlotIndex.clear();
     im.instrumentSlotIndex = -1;
@@ -340,21 +375,32 @@ void ChannelStrip::rebuildFrom (const Track& track)
     for (size_t slotIndex = 0; slotIndex < track.plugins.size(); ++slotIndex)
     {
         const auto& slot = track.plugins[slotIndex];
-        juce::String error;
-        auto instance = im.plugins.createInstance (slot.identifier, im.sampleRate, im.blockSize, error);
 
-        if (instance == nullptr)
+        std::unique_ptr<juce::AudioPluginInstance> instance;
+
+        if (auto it = reusable.find (slot.identifier); it != reusable.end() && ! it->second.empty())
         {
-            // A missing or blacklisted plugin must not take the track with it -
-            // the slot stays in the project so re-installing it restores the chain.
-            juce::Logger::writeToLog ("ScoreSmith: " + slot.displayName + " unavailable - " + error);
-            continue;
+            instance = std::move (it->second.front());
+            it->second.pop_front();
         }
+        else
+        {
+            juce::String error;
+            instance = im.plugins.createInstance (slot.identifier, im.sampleRate, im.blockSize, error);
 
-        if (! slot.state.isEmpty())
-            instance->setStateInformation (slot.state.getData(), (int) slot.state.getSize());
+            if (instance == nullptr)
+            {
+                // A missing or blacklisted plugin must not take the track with it -
+                // the slot stays in the project so re-installing it restores the chain.
+                juce::Logger::writeToLog ("ScoreSmith: " + slot.displayName + " unavailable - " + error);
+                continue;
+            }
 
-        im.prepareInstance (*instance);
+            if (! slot.state.isEmpty())
+                instance->setStateInformation (slot.state.getData(), (int) slot.state.getSize());
+
+            im.prepareInstance (*instance);
+        }
 
         bool isInstrument = slot.isInstrument;
 
@@ -367,11 +413,13 @@ void ChannelStrip::rebuildFrom (const Track& track)
         if (isInstrument && im.instrument == nullptr)
         {
             im.instrument = std::move (instance);
+            im.instrumentIdentifier = slot.identifier;
             im.instrumentSlotIndex = (int) slotIndex;
         }
         else
         {
             im.pluginFx.push_back (std::move (instance));
+            im.pluginIdentifier.push_back (slot.identifier);
             im.pluginBypassed.push_back (slot.bypassed ? 1 : 0);
             im.pluginSlotIndex.push_back ((int) slotIndex);
         }

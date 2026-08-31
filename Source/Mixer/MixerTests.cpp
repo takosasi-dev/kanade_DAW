@@ -1061,6 +1061,57 @@ public:
             }
         }
 
+        /*  rebuildFrom() used to tear down and reload every plugin on a track
+            whenever the chain signature changed at all, even for a slot that
+            wasn't touched by the edit - adding a third effect respawned the
+            first two as well. It now reuses each slot's live instance when
+            its identifier is unchanged (matched by the identifier the
+            instance was actually created from, not re-derived from
+            getPluginDescription() - BasicSynth's fixed identifier round-
+            trips through a different PluginDescription than the one it
+            was loaded with, so this pins that specific case down too). */
+        beginTest ("rebuildFrom reuses untouched slots' live instances, only creating the newly added one");
+        {
+            Settings settings;
+            PluginManager pluginManager (settings);
+            Mixer mixer (pluginManager);
+            mixer.prepare (48000.0, 512, 2);
+
+            Project project;
+            auto& track = project.addTrack (TrackType::midi, "Synth");
+            track.plugins.push_back ({ BasicSynth::identifier, "Instrument", false, true, {} });
+            track.plugins.push_back ({ BasicSynth::identifier, "Effect A", false, false, {} });
+            const auto trackId = track.getId();
+
+            mixer.setProject (&project);
+            mixer.rebuild();
+
+            auto* strip = mixer.getStripForTrack (trackId);
+            expect (strip != nullptr);
+            if (strip == nullptr)
+                return;
+
+            auto* instrumentBefore = strip->getPluginForSlot (0);
+            auto* effectABefore    = strip->getPluginForSlot (1);
+            expect (instrumentBefore != nullptr);
+            expect (effectABefore != nullptr);
+
+            // Append a second effect - the chain signature changes, so
+            // mixer.rebuild() runs rebuildFrom() again for this track.
+            track.plugins.push_back ({ BasicSynth::identifier, "Effect B", false, false, {} });
+            mixer.rebuild();
+
+            expect (strip->getPluginForSlot (0) == instrumentBefore,
+                    "the untouched instrument slot must keep its live instance, not get a fresh one");
+            expect (strip->getPluginForSlot (1) == effectABefore,
+                    "the untouched first effect slot must keep its live instance, not get a fresh one");
+
+            auto* effectBAfter = strip->getPluginForSlot (2);
+            expect (effectBAfter != nullptr, "the newly added slot must have its own instance");
+            expect (effectBAfter != instrumentBefore && effectBAfter != effectABefore,
+                    "the new slot's instance must not alias an existing one");
+        }
+
         /*  Final-review regression: the loop-wrap fix above (addAllNotesOff at the
             wrap point) left two adjacent, identical defects unfixed - stopping a
             session clip, and replacing one with another on the same track, both
