@@ -48,6 +48,18 @@ namespace ss
     juce::String Settings::getLastSeenVersion() const      { return props.getUserSettings()->getValue ("lastSeenVersion", {}); }
     void Settings::setLastSeenVersion (const juce::String& v) { props.getUserSettings()->setValue ("lastSeenVersion", v); }
 
+    bool Settings::getShowPanValueLabel() const            { return props.getUserSettings()->getBoolValue ("showPanValueLabel", false); }
+    void Settings::setShowPanValueLabel (bool v)            { props.getUserSettings()->setValue ("showPanValueLabel", v); }
+
+    int Settings::getTimelineRefreshHz() const              { return props.getUserSettings()->getIntValue ("timelineRefreshHz", 24); }
+    void Settings::setTimelineRefreshHz (int v)              { props.getUserSettings()->setValue ("timelineRefreshHz", v); }
+
+    int Settings::getMixerMeterRefreshHz() const            { return props.getUserSettings()->getIntValue ("mixerMeterRefreshHz", 30); }
+    void Settings::setMixerMeterRefreshHz (int v)            { props.getUserSettings()->setValue ("mixerMeterRefreshHz", v); }
+
+    int Settings::getUndoHistoryLimit() const               { return props.getUserSettings()->getIntValue ("undoHistoryLimit", 500); }
+    void Settings::setUndoHistoryLimit (int v)               { props.getUserSettings()->setValue ("undoHistoryLimit", v); }
+
     double Settings::getDefaultBpm() const                { return props.getUserSettings()->getDoubleValue ("defaultBpm", 120.0); }
     void Settings::setDefaultBpm (double v)               { props.getUserSettings()->setValue ("defaultBpm", v); }
 
@@ -83,6 +95,16 @@ namespace ss
     void Settings::setPluginScanPaths (const juce::StringArray& v)
     {
         props.getUserSettings()->setValue ("pluginScanPaths", v.joinIntoString ("\n"));
+    }
+
+    juce::StringArray Settings::getExtensionScanPaths() const
+    {
+        return splitPaths (props.getUserSettings()->getValue ("extensionScanPaths"));
+    }
+
+    void Settings::setExtensionScanPaths (const juce::StringArray& v)
+    {
+        props.getUserSettings()->setValue ("extensionScanPaths", v.joinIntoString ("\n"));
     }
 
     juce::StringArray Settings::getSampleLibraryFolders() const

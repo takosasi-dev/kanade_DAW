@@ -80,6 +80,23 @@ namespace ss
         setUpReadout (timecodeLabel, 13.0f, palette().textDim);
         setUpReadout (cpuLabel, 11.0f, palette().textDim);
 
+        outputDeviceBox.setTooltip (TRANS ("Output device"));
+        outputDeviceBox.onChange = [this]
+        {
+            if (ctx.engine == nullptr)
+                return;
+
+            auto& dm = ctx.engine->getDeviceManager();
+            auto setup = dm.getAudioDeviceSetup();
+            setup.outputDeviceName = outputDeviceBox.getText();
+            dm.setAudioDeviceSetup (setup, true);
+        };
+        addAndMakeVisible (outputDeviceBox);
+        refreshOutputDeviceBox();
+
+        if (ctx.engine != nullptr)
+            ctx.engine->getDeviceManager().addChangeListener (this);
+
         pullFromProject();
         startTimerHz (24);
     }
@@ -87,11 +104,39 @@ namespace ss
     TransportBar::~TransportBar()
     {
         stopTimer();
+        if (ctx.engine != nullptr)
+            ctx.engine->getDeviceManager().removeChangeListener (this);
     }
 
-    void TransportBar::changeListenerCallback (juce::ChangeBroadcaster*)
+    void TransportBar::changeListenerCallback (juce::ChangeBroadcaster* source)
     {
-        pullFromProject();
+        if (ctx.engine != nullptr && source == &ctx.engine->getDeviceManager())
+            refreshOutputDeviceBox();
+        else
+            pullFromProject();
+    }
+
+    void TransportBar::refreshOutputDeviceBox()
+    {
+        if (ctx.engine == nullptr)
+            return;
+
+        auto& dm = ctx.engine->getDeviceManager();
+        auto* type = dm.getCurrentDeviceTypeObject();
+        if (type == nullptr)
+            return;
+
+        type->scanForDevices();
+        const auto names = type->getDeviceNames (false);   // false = output device names
+
+        outputDeviceBox.clear (juce::dontSendNotification);
+        for (int i = 0; i < names.size(); ++i)
+            outputDeviceBox.addItem (names[i], i + 1);
+
+        int selectedId = 0;
+        if (auto* device = dm.getCurrentAudioDevice())
+            selectedId = names.indexOf (device->getName()) + 1;
+        outputDeviceBox.setSelectedId (selectedId, juce::dontSendNotification);
     }
 
     void TransportBar::pullFromProject()
@@ -230,5 +275,8 @@ namespace ss
         area.removeFromRight (6);
         meterArea = area.removeFromRight (juce::jmin (200, juce::jmax (60, area.getWidth())))
                         .reduced (0, 7).toFloat();
+        area.removeFromRight (10);
+        outputDeviceBox.setBounds (area.removeFromRight (juce::jmin (160, juce::jmax (0, area.getWidth())))
+                                        .reduced (0, 6));
     }
 }

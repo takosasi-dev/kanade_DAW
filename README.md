@@ -50,6 +50,110 @@ JUCE 8.0.6 は FetchContent で自動取得する(初回ビルドのみネット
 
 設計時に固めたヘッダの不備は16点あったが、**2026-08-26に全16点を解消**(バス/センド、入力モニタリング、オートメーション編集UIと音声側の適用、テイク長、マスターFXの永続化、そして最後まで残っていたプラグインのランタイム別プロセス実行)。詳細は [docs/STATUS.md](docs/STATUS.md)。
 
-ビルド・テスト状況: Debug/Release ともエラー0、ユニットテスト**2,444件全通過**。
+ビルド・テスト状況: Debug/Release ともエラー0、ユニットテスト**2,694件全通過**(2026-08-29確認)。
 
 **2026-08-26 実機テストで見つかった不具合を修正**: タイムラインの再生ヘッドをドラッグしても表示が動かない(`repaint()`呼び忘れ)を修正。また、内蔵音源が無く採譜結果が無音だった件への当面の対策として、ミキサーの「Add instrument → Built-in instruments」から挿せる簡易内蔵シンセ「KANADE DAW Basic Synth」(sine/saw/square + ADSR)を追加。
+
+## 拡張機能(フォーマットプラグイン)の作り方
+
+KANADE DAW は import/export フォーマットをサードパーティが追加できます。
+1フォルダ = 1拡張機能で、`manifest.json` と実行ファイル(言語は問いません)
+を同じフォルダに置くだけです。アプリ内では Help > 「拡張機能の作り方...」
+でも同じ内容を確認できます。
+
+### manifest.json
+
+```json
+{
+  "id": "com.example.reason-export",
+  "name": "Reason Project Export",
+  "version": "1.0.0",
+  "fileExtension": "reason",
+  "direction": "export",
+  "executable": "reason-export.exe"
+}
+```
+
+| フィールド | 必須 | 説明 |
+|---|---|---|
+| `id` | ○ | 一意なID(逆ドメイン名推奨) |
+| `name` | ○ | File メニュー・設定画面に表示される名前 |
+| `version` | - | 表示用(省略可) |
+| `fileExtension` | ○ | 先頭のドット無し(例: `"reason"`) |
+| `direction` | - | `"import"` \| `"export"` \| `"both"`(省略時 `"both"`) |
+| `executable` | ○ | 同じフォルダ内の実行ファイル名 |
+
+**`executable`は必ずネイティブの実行ファイル(Win32 `.exe`)にしてください。**
+KANADE DAW は `juce::ChildProcess`(Windows実装では `CreateProcess` を直接
+呼び出す)で拡張機能を起動するため、シェルの解釈が一切挟まりません。
+`.bat` / `.cmd` / `.ps1` のようなスクリプトを`executable`に直接指定しても
+起動できません。また、`executable`は拡張機能自身のフォルダの中に実在する
+ファイルでなければならないという制約もあるため、`powershell.exe`のような
+外部インタプリタを直接指定して回避することもできません。スクリプトで
+処理を書きたい場合は、そのスクリプトを呼び出すだけの小さなネイティブ
+実行ファイルでラップしてください。
+
+### 呼び出し方
+
+```
+<executable> --export <input.dawproject> <output-file>
+<executable> --import <input-file> <output.dawproject>
+```
+
+KANADE DAW は御社独自のフォーマットを一切解釈しません。相互運用フォーマット
+[DAWproject](https://github.com/bitwig/dawproject)(Studio One / Bitwig /
+Cubase 等が対応)との変換だけを拡張機能の実行ファイルに任せます。
+
+終了コード `0` で成功。それ以外は失敗として扱われ、標準出力/標準エラー
+出力の内容がそのまま KANADE DAW 側のエラーダイアログに表示されます。
+成功終了しても出力ファイルが実際に存在しなければ失敗扱いです。
+タイムアウトは120秒です。
+
+### 最小サンプル(C言語、恒等変換)
+
+入力ファイルをそのまま出力ファイルへコピーするだけの最小サンプルです。
+実運用では`fread`/`fwrite`ループの部分を実際のフォーマット変換処理に
+差し替えてください。
+
+`identity.c`:
+```c
+#include <stdio.h>
+
+int main (int argc, char** argv)
+{
+    /* argv[1] が --export/--import、argv[2] が入力パス、argv[3] が出力パス
+       (前述の「呼び出し方」を参照)。 */
+    if (argc < 4)
+        return 1;
+
+    FILE* in  = fopen (argv[2], "rb");
+    FILE* out = fopen (argv[3], "wb");
+    if (in == NULL || out == NULL)
+        return 1;
+
+    char buffer[4096];
+    size_t bytesRead;
+    while ((bytesRead = fread (buffer, 1, sizeof (buffer), in)) > 0)
+        fwrite (buffer, 1, bytesRead, out);
+
+    fclose (in);
+    fclose (out);
+    return 0;
+}
+```
+
+コンパイルして`identity.exe`を作り、`manifest.json`と同じフォルダに
+置いてください:
+```
+cl identity.c                    (MSVCの場合。identity.exeが生成されます)
+gcc identity.c -o identity.exe   (MinGWなどGCC系ツールチェインの場合)
+```
+
+`manifest.json`の`executable`には、ソースファイルではなく
+コンパイル後の`"identity.exe"`を指定します。
+
+### 発見のされ方
+
+設定 > Extensions タブでスキャン対象フォルダを登録すると、その直下の
+各サブフォルダが1拡張機能として走査されます。`manifest.json` が壊れて
+いる場合は警告付きでスキップされ、他の拡張機能の発見をブロックしません。

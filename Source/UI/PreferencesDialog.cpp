@@ -2,6 +2,7 @@
 #include "Core/Localisation.h"
 #include "Core/Settings.h"
 #include "Engine/AudioEngine.h"
+#include "Extensions/FormatExtensionManager.h"
 #include "Plugins/PluginManager.h"
 #include <algorithm>
 #include <cmath>
@@ -327,6 +328,51 @@ namespace ss
                 };
                 addAndMakeVisible (backupsSlider);
 
+                panValueLabelButton.setButtonText (TRANS ("Show pan value as a number next to the pan knob"));
+                panValueLabelButton.setToggleState (settings.getShowPanValueLabel(), juce::dontSendNotification);
+                panValueLabelButton.onClick = [this]
+                {
+                    ctx.settings->setShowPanValueLabel (panValueLabelButton.getToggleState());
+                    if (onChanged) onChanged();
+                };
+                addAndMakeVisible (panValueLabelButton);
+
+                setUpLabel (*this, timelineHzLabel, TRANS ("Timeline redraw rate"));
+                timelineHzSlider.setRange (5.0, 60.0, 1.0);
+                timelineHzSlider.setValue (settings.getTimelineRefreshHz(), juce::dontSendNotification);
+                timelineHzSlider.setTextValueSuffix (" Hz");
+                timelineHzSlider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 60, 22);
+                timelineHzSlider.onDragEnd = [this]
+                {
+                    ctx.settings->setTimelineRefreshHz ((int) timelineHzSlider.getValue());
+                    if (onChanged) onChanged();
+                };
+                addAndMakeVisible (timelineHzSlider);
+
+                setUpLabel (*this, mixerHzLabel, TRANS ("Mixer meter redraw rate"));
+                mixerHzSlider.setRange (5.0, 60.0, 1.0);
+                mixerHzSlider.setValue (settings.getMixerMeterRefreshHz(), juce::dontSendNotification);
+                mixerHzSlider.setTextValueSuffix (" Hz");
+                mixerHzSlider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 60, 22);
+                mixerHzSlider.onDragEnd = [this]
+                {
+                    ctx.settings->setMixerMeterRefreshHz ((int) mixerHzSlider.getValue());
+                    if (onChanged) onChanged();
+                };
+                addAndMakeVisible (mixerHzSlider);
+
+                setUpLabel (*this, undoLimitLabel, TRANS ("Undo history limit"));
+                undoLimitSlider.setRange (10.0, 5000.0, 10.0);
+                undoLimitSlider.setValue (settings.getUndoHistoryLimit(), juce::dontSendNotification);
+                undoLimitSlider.setTextValueSuffix (" " + TRANS ("steps"));
+                undoLimitSlider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 90, 22);
+                undoLimitSlider.onDragEnd = [this]
+                {
+                    ctx.settings->setUndoHistoryLimit ((int) undoLimitSlider.getValue());
+                    if (onChanged) onChanged();
+                };
+                addAndMakeVisible (undoLimitSlider);
+
                 setUpNote (*this, languageNote,
                            TRANS ("Theme and scale apply immediately. A language change applies to menus and "
                                   "dialogs straight away; restart to re-translate every open panel."));
@@ -341,6 +387,10 @@ namespace ss
                 layOutRow (area, startupLabel, startupBox);
                 layOutRow (area, autoSaveLabel, autoSaveSlider);
                 layOutRow (area, backupsLabel, backupsSlider);
+                panValueLabelButton.setBounds (Row::next (area, 24));
+                layOutRow (area, timelineHzLabel, timelineHzSlider);
+                layOutRow (area, mixerHzLabel, mixerHzSlider);
+                layOutRow (area, undoLimitLabel, undoLimitSlider);
                 area.removeFromTop (10);
                 languageNote.setBounds (area.removeFromTop (60));
             }
@@ -350,11 +400,15 @@ namespace ss
             DarkLookAndFeel& lookAndFeel;
             std::function<void()> onChanged;
             juce::Label languageLabel, themeLabel, scaleLabel, startupLabel, autoSaveLabel,
-                        backupsLabel, languageNote;
+                        backupsLabel, timelineHzLabel, mixerHzLabel, undoLimitLabel, languageNote;
             juce::ComboBox languageBox, themeBox, startupBox;
             juce::Slider scaleSlider { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };
             juce::Slider autoSaveSlider { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };
             juce::Slider backupsSlider { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };
+            juce::Slider timelineHzSlider { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };
+            juce::Slider mixerHzSlider { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };
+            juce::Slider undoLimitSlider { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };
+            juce::ToggleButton panValueLabelButton;
         };
 
         //======================================================================
@@ -669,6 +723,118 @@ namespace ss
             juce::Label pathsLabel, listLabel, sandboxNote, statusLabel;
             juce::TextButton addPathButton, rescanButton, abortButton;
             juce::ToggleButton sandboxButton, autoScanButton;
+            std::unique_ptr<juce::FileChooser> chooser;
+        };
+
+        //======================================================================
+        // 6. Format extensions
+        //======================================================================
+        class ExtensionsTab final : public juce::Component
+        {
+        public:
+            explicit ExtensionsTab (AppContext& c) : ctx (c)
+            {
+                setUpLabel (*this, pathsLabel, TRANS ("Scan paths"));
+                pathsEditor.setMultiLine (true, false);
+                pathsEditor.setReturnKeyStartsNewLine (true);
+                pathsEditor.setText (ctx.settings->getExtensionScanPaths().joinIntoString ("\n"),
+                                     juce::dontSendNotification);
+                pathsEditor.onFocusLost = [this]
+                {
+                    juce::StringArray paths;
+                    paths.addLines (pathsEditor.getText());
+                    paths.removeEmptyStrings();
+                    ctx.settings->setExtensionScanPaths (paths);
+                    rescan();
+                };
+                addAndMakeVisible (pathsEditor);
+
+                addPathButton.setButtonText (TRANS ("Add folder..."));
+                addPathButton.onClick = [this]
+                {
+                    chooser = std::make_unique<juce::FileChooser> (TRANS ("Add an extensions folder"));
+                    chooser->launchAsync (juce::FileBrowserComponent::openMode
+                                            | juce::FileBrowserComponent::canSelectDirectories,
+                                          [this] (const juce::FileChooser& fc)
+                    {
+                        const auto folder = fc.getResult();
+                        if (! folder.isDirectory()) return;
+
+                        auto paths = ctx.settings->getExtensionScanPaths();
+                        paths.addIfNotAlreadyThere (folder.getFullPathName());
+                        ctx.settings->setExtensionScanPaths (paths);
+                        pathsEditor.setText (paths.joinIntoString ("\n"), juce::dontSendNotification);
+                        rescan();
+                    });
+                };
+                addAndMakeVisible (addPathButton);
+
+                setUpNote (*this, helpNote,
+                           TRANS ("See Help > \"How to build a format extension...\" for the manifest.json "
+                                  "schema and command-line contract an extension must follow."));
+
+                setUpLabel (*this, listLabel, TRANS ("Discovered extensions"));
+                list.setMultiLine (true, true);
+                list.setReadOnly (true);
+                list.setCaretVisible (false);
+                addAndMakeVisible (list);
+
+                rescan();
+            }
+
+            void resized() override
+            {
+                auto area = getLocalBounds().reduced (14, 12);
+
+                auto pathsRow = area.removeFromTop (84);
+                pathsLabel.setBounds (pathsRow.removeFromLeft (labelWidth).removeFromTop (rowHeight));
+                addPathButton.setBounds (pathsRow.removeFromRight (130).removeFromTop (26));
+                pathsEditor.setBounds (pathsRow.withTrimmedRight (8));
+
+                area.removeFromTop (8);
+                helpNote.setBounds (area.removeFromTop (32));
+                area.removeFromTop (6);
+                listLabel.setBounds (area.removeFromTop (20));
+                list.setBounds (area);
+            }
+
+        private:
+            void rescan()
+            {
+                juce::StringArray warnings;
+                if (ctx.formatExtensions != nullptr)
+                    ctx.formatExtensions->rescan (ctx.settings->getExtensionScanPaths(), warnings);
+
+                juce::String text;
+                if (ctx.formatExtensions != nullptr)
+                    for (const auto& ext : ctx.formatExtensions->getExtensions())
+                        text += ext.name + " v" + (ext.version.isEmpty() ? juce::String ("-") : ext.version)
+                                + " (." + ext.fileExtension + ") - " + directionLabel (ext.direction) + "\n";
+
+                if (! warnings.isEmpty())
+                {
+                    text += "\n" + TRANS ("Warnings") + ":\n";
+                    for (const auto& w : warnings)
+                        text += w + "\n";
+                }
+
+                list.setText (text.trimEnd(), false);
+            }
+
+            static juce::String directionLabel (ExtensionDirection d)
+            {
+                switch (d)
+                {
+                    case ExtensionDirection::importOnly: return TRANS ("Import");
+                    case ExtensionDirection::exportOnly: return TRANS ("Export");
+                    default:                             return TRANS ("Import") + " / " + TRANS ("Export");
+                }
+            }
+
+            AppContext& ctx;
+            juce::Label pathsLabel, listLabel, helpNote;
+            juce::TextEditor pathsEditor, list;
+            juce::TextButton addPathButton;
             std::unique_ptr<juce::FileChooser> chooser;
         };
 
@@ -1242,6 +1408,7 @@ namespace ss
         tabs.addTab (TRANS ("General"),        tabColour, new GeneralTab (ctx, laf, onSettingsChanged), true);
         tabs.addTab (TRANS ("Project"),        tabColour, new ProjectDefaultsTab (ctx), true);
         tabs.addTab (TRANS ("Plugins"),        tabColour, new PluginTab (ctx), true);
+        tabs.addTab (TRANS ("Extensions"),     tabColour, new ExtensionsTab (ctx), true);
         tabs.addTab (TRANS ("Shortcuts"),      tabColour, new ShortcutTab (ctx, cm), true);
         tabs.addTab (TRANS ("Files"),          tabColour, new FilesTab (ctx), true);
         tabs.addTab (TRANS ("Account"),        tabColour, new AccountTab (ctx), true);

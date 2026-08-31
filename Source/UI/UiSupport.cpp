@@ -68,7 +68,7 @@ namespace ss
                 return true;
             }
 
-            int getSizeInUnits() override { return 2048; }
+            int getSizeInUnits() override { return projectSnapshotActionUnitsPerStep; }
 
         private:
             Project& proj;
@@ -439,6 +439,13 @@ namespace ss
     {
         if (db <= -59.9f) return "-" + juce::String (juce::CharPointer_UTF8 ("\xe2\x88\x9e"));
         return juce::String (db, db > -10.0f ? 1 : 0) + " dB";
+    }
+
+    juce::String formatPan (float pan)
+    {
+        const int amount = juce::roundToInt (std::abs (pan) * 100.0f);
+        if (amount == 0) return "C";
+        return (pan < 0.0f ? "L" : "R") + juce::String (amount);
     }
 
     //==============================================================================

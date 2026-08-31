@@ -2,9 +2,12 @@
 #include "Core/Localisation.h"
 #include "Core/Settings.h"
 #include "Engine/AudioEngine.h"
+#include "Extensions/FormatExtensionManager.h"
+#include "Extensions/FormatExtensionRunner.h"
 #include "IO/DawProject.h"
 #include "IO/FileIO.h"
 #include "Plugins/PluginManager.h"
+#include "UI/ExtensionHelpDialog.h"
 #include "UI/GenerateView.h"
 #include "UI/MixerView.h"
 #include "UI/NotationView.h"
@@ -30,6 +33,14 @@ namespace ss
         constexpr int toolbarHeight  = 36;
         constexpr int transportHeight = 56;
         constexpr int resizerWidth   = 5;
+
+        // Hand-rolled PopupMenu ids for the dynamically-discovered format
+        // extensions (their count varies at runtime, so they can't live in the
+        // fixed CommandIDs enum). 1000-wide bands comfortably outlive any
+        // realistic number of installed extensions and never collide with the
+        // existing hand-rolled ids (20001-20003) used elsewhere in this file.
+        constexpr int importExtensionMenuIdBase = 21000;
+        constexpr int exportExtensionMenuIdBase = 22000;
 
         /** Screens the spec puts in a later phase (9.10 session view, 9.11
             modular patching).  MainComponent::View has entries for them, so they
@@ -621,6 +632,10 @@ namespace ss
 
             ctx.setProject (std::move (newProject));
 
+            if (ctx.project != nullptr && ctx.settings != nullptr)
+                ctx.project->getUndoManager().setMaxNumberOfStoredUnits (
+                    ctx.settings->getUndoHistoryLimit() * projectSnapshotActionUnitsPerStep, 1);
+
             for (auto* view : projectViews())
                 view->attachToProject();
 
@@ -906,6 +921,79 @@ namespace ss
             });
         }
 
+        void rescanFormatExtensions()
+        {
+            if (ctx.formatExtensions == nullptr)
+                return;
+            juce::StringArray warnings;   // shown in Preferences > Extensions, not here
+            ctx.formatExtensions->rescan (ctx.settings->getExtensionScanPaths(), warnings);
+        }
+
+        void exportViaExtension (const FormatExtension& extension)
+        {
+            if (ctx.project == nullptr || ctx.plugins == nullptr)
+                return;
+
+            chooser = std::make_unique<juce::FileChooser> (extension.name,
+                                                            ctx.settings->getProjectsFolder(),
+                                                            "*." + extension.fileExtension);
+            chooser->launchAsync (juce::FileBrowserComponent::saveMode
+                                    | juce::FileBrowserComponent::canSelectFiles
+                                    | juce::FileBrowserComponent::warnAboutOverwriting,
+                                  [this, extension] (const juce::FileChooser& fc)
+            {
+                auto file = fc.getResult();
+                if (file.getFullPathName().isEmpty() || ctx.project == nullptr) return;
+                file = file.withFileExtension (extension.fileExtension);
+
+                juce::String error;
+                juce::StringArray warnings;
+                ExternalFormatExtensionRunner runner;
+                if (! io::runFormatExtensionExport (extension, *ctx.project, *ctx.plugins, file,
+                                                    runner, error, warnings))
+                {
+                    juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
+                                                            TRANS ("Export failed"), error, TRANS ("OK"), &owner);
+                    return;
+                }
+                showDawProjectWarnings (warnings);
+            });
+        }
+
+        void importViaExtension (const FormatExtension& extension)
+        {
+            if (ctx.project == nullptr || ctx.plugins == nullptr)
+                return;
+
+            chooser = std::make_unique<juce::FileChooser> (extension.name, juce::File(),
+                                                            "*." + extension.fileExtension);
+            chooser->launchAsync (juce::FileBrowserComponent::openMode
+                                    | juce::FileBrowserComponent::canSelectFiles,
+                                  [this, extension] (const juce::FileChooser& fc)
+            {
+                auto file = fc.getResult();
+                if (file.getFullPathName().isEmpty() || ctx.project == nullptr) return;
+
+                auto error = std::make_shared<juce::String>();
+                auto warnings = std::make_shared<juce::StringArray>();
+                bool ok = false;
+                ExternalFormatExtensionRunner runner;
+
+                performProjectEdit (*ctx.project, TRANS ("Import") + " " + extension.name,
+                                    [this, file, extension, error, warnings, &ok, &runner]
+                {
+                    ok = io::runFormatExtensionImport (extension, *ctx.project, *ctx.plugins, file,
+                                                       runner, *error, *warnings);
+                });
+
+                if (! ok)
+                    juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
+                                                            TRANS ("Import failed"), *error, TRANS ("OK"), &owner);
+                else
+                    showDawProjectWarnings (*warnings);
+            });
+        }
+
         void exportAudio()
         {
             if (ctx.project == nullptr || ctx.engine == nullptr)
@@ -988,6 +1076,14 @@ namespace ss
                 return;
 
             juce::Desktop::getInstance().setGlobalScaleFactor (ctx.settings->getUiScale());
+
+            if (timeline != nullptr) timeline->setRefreshHz (ctx.settings->getTimelineRefreshHz());
+            if (mixer != nullptr)    mixer->setRefreshHz (ctx.settings->getMixerMeterRefreshHz());
+            if (ctx.project != nullptr)
+                ctx.project->getUndoManager().setMaxNumberOfStoredUnits (
+                    ctx.settings->getUndoHistoryLimit() * projectSnapshotActionUnitsPerStep, 1);
+
+            rescanFormatExtensions();
 
             if (ctx.settings->getLanguage() != currentLanguage)
             {
@@ -1118,6 +1214,15 @@ namespace ss
                 menu.addCommandItem (&commands, CommandIDs::importAudio);
                 menu.addCommandItem (&commands, CommandIDs::importMidi);
                 menu.addCommandItem (&commands, CommandIDs::importDawProject);
+
+                if (impl->ctx.formatExtensions != nullptr)
+                {
+                    const auto importExtensions = impl->ctx.formatExtensions->matching (ExtensionDirection::importOnly);
+                    for (size_t i = 0; i < importExtensions.size(); ++i)
+                        menu.addItem ((int) (importExtensionMenuIdBase + i),
+                                      importExtensions[i]->name + " (." + importExtensions[i]->fileExtension + ")...");
+                }
+
                 menu.addSeparator();
                 {
                     juce::PopupMenu exportMenu;
@@ -1125,6 +1230,15 @@ namespace ss
                     exportMenu.addCommandItem (&commands, CommandIDs::exportAudio);
                     exportMenu.addCommandItem (&commands, CommandIDs::exportMusicXml);
                     exportMenu.addCommandItem (&commands, CommandIDs::exportDawProject);
+
+                    if (impl->ctx.formatExtensions != nullptr)
+                    {
+                        const auto exportExtensions = impl->ctx.formatExtensions->matching (ExtensionDirection::exportOnly);
+                        for (size_t i = 0; i < exportExtensions.size(); ++i)
+                            exportMenu.addItem ((int) (exportExtensionMenuIdBase + i),
+                                                exportExtensions[i]->name + " (." + exportExtensions[i]->fileExtension + ")...");
+                    }
+
                     menu.addSubMenu (TRANS ("Export"), exportMenu);
                 }
                 menu.addSeparator();
@@ -1191,6 +1305,7 @@ namespace ss
 
             case 6:
                 menu.addItem (20001, TRANS ("About KANADE DAW"));
+                menu.addCommandItem (&commands, CommandIDs::showExtensionHelp);
                 break;
 
             default:
@@ -1202,8 +1317,32 @@ namespace ss
 
     void MainComponent::menuItemSelected (int menuItemID, int)
     {
+        if (menuItemID >= importExtensionMenuIdBase && menuItemID < exportExtensionMenuIdBase)
+        {
+            if (impl->ctx.formatExtensions != nullptr)
+            {
+                const auto extensions = impl->ctx.formatExtensions->matching (ExtensionDirection::importOnly);
+                const auto index = (size_t) (menuItemID - importExtensionMenuIdBase);
+                if (index < extensions.size())
+                    impl->importViaExtension (*extensions[index]);
+            }
+            return;
+        }
+
+        if (menuItemID >= exportExtensionMenuIdBase)
+        {
+            if (impl->ctx.formatExtensions != nullptr)
+            {
+                const auto extensions = impl->ctx.formatExtensions->matching (ExtensionDirection::exportOnly);
+                const auto index = (size_t) (menuItemID - exportExtensionMenuIdBase);
+                if (index < extensions.size())
+                    impl->exportViaExtension (*extensions[index]);
+            }
+            return;
+        }
+
         // Command items invoke themselves through the command manager; only the
-        // hand-rolled ids need handling here.
+        // hand-rolled ids below here need handling.
         if (menuItemID == 20001)
             juce::AlertWindow::showMessageBoxAsync (
                 juce::MessageBoxIconType::InfoIcon,
@@ -1258,7 +1397,7 @@ namespace ss
             CommandIDs::toggleBrowser, CommandIDs::toggleAiPanel, CommandIDs::toggleAutomation,
             CommandIDs::zoomIn, CommandIDs::zoomOut,
             CommandIDs::transcribeSelection, CommandIDs::generateFromSelection,
-            CommandIDs::showPreferences, CommandIDs::rescanPlugins });
+            CommandIDs::showPreferences, CommandIDs::rescanPlugins, CommandIDs::showExtensionHelp });
     }
 
     void MainComponent::getCommandInfo (juce::CommandID id, juce::ApplicationCommandInfo& info)
@@ -1513,6 +1652,12 @@ namespace ss
                 info.setActive (impl->ctx.plugins != nullptr && ! impl->ctx.plugins->isScanning());
                 break;
 
+            case CommandIDs::showExtensionHelp:
+                info.setInfo (TRANS ("How to build a format extension..."),
+                              TRANS ("Shows the manifest schema and command-line contract for format extensions"),
+                              TRANS ("Help"), 0);
+                break;
+
             default:
                 break;
         }
@@ -1722,6 +1867,8 @@ namespace ss
                 if (impl->ctx.plugins != nullptr)
                     impl->ctx.plugins->startScan (false);
                 return true;
+
+            case CommandIDs::showExtensionHelp: ExtensionHelpDialog::launch(); return true;
 
             default:
                 return false;

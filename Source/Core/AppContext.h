@@ -7,6 +7,7 @@ namespace ss
     class Project;  class Settings;
     class AudioEngine;  class PluginManager;
     class Transcriber;  class Generator;  class StemSeparator;
+    class FormatExtensionManager;
 
     /** Everything the app owns, in one place, handed to the UI by reference.
         Constructed once in Main.cpp; there is no singleton and no service
@@ -23,6 +24,7 @@ namespace ss
         std::unique_ptr<Transcriber>   transcriber;
         std::unique_ptr<Generator>     generator;
         std::unique_ptr<StemSeparator> stemSeparator;
+        std::unique_ptr<FormatExtensionManager> formatExtensions;
 
         /** Empty when the audio device opened; the driver's message otherwise. */
         juce::String audioDeviceError;

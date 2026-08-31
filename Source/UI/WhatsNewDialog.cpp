@@ -8,6 +8,12 @@ namespace ss
         std::vector<std::pair<juce::String, juce::StringArray>> releaseNotes()
         {
             return {
+                { "0.4.0", juce::StringArray {
+                    TRANS ("Third-party format extensions: add new import/export file formats with a manifest.json and an executable of your choice. See Help > \"How to build an extension\" or the README."),
+                    TRANS ("Mixer channel strips can now show a numeric pan value."),
+                    TRANS ("New performance settings: adjust the UI redraw rate and the undo history limit."),
+                    TRANS ("Quickly switch the audio output device from the transport bar.")
+                } },
                 { "0.3.0", juce::StringArray {
                     TRANS ("Export and import DAWproject files, so you can move projects to and from Studio One, Bitwig, Cubase and other DAWs."),
                     TRANS ("Tracks, buses, clips, VST3 plugin state, built-in effects, automation, and Session view scenes all carry over.")

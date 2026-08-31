@@ -60,6 +60,10 @@ namespace ss
         /** Splits every selected clip at the playhead (Edit > Split). */
         void splitSelectionAtPlayhead();
 
+        /** Preferences > General "Timeline redraw rate" - juce::Timer is a
+            private base, so this is the settings-change hook's only way in. */
+        void setRefreshHz (int hz) { startTimerHz (hz); }
+
         /** View > Automation: expands or collapses the selected track's
             automation lanes underneath it. */
         void toggleAutomationForSelectedTrack();

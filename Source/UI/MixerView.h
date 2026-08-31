@@ -88,6 +88,7 @@ namespace ss
         juce::Label      nameLabel, valueLabel, loudnessLabel;
         juce::Slider     fader { juce::Slider::LinearVertical, juce::Slider::NoTextBox };
         juce::Slider     panKnob { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::NoTextBox };
+        juce::Label      panValueLabel;   // "L20"/"C"/"R45" - shown only when Settings::getShowPanValueLabel()
         juce::TextButton muteButton, soloButton, addFxButton, outButton;
         juce::OwnedArray<juce::TextButton> slotButtons;
 
@@ -115,6 +116,10 @@ namespace ss
         void showPluginEditor (TrackId, int pluginIndex);
         /** Opens the generic editor for a built-in effect slot. */
         void showBuiltinFxEditor (TrackId, int slotIndex, int busId = 0);
+
+        /** Preferences > General "Mixer meter redraw rate" - juce::Timer is a
+            private base, so this is the settings-change hook's only way in. */
+        void setRefreshHz (int hz) { startTimerHz (hz); }
 
         void paint (juce::Graphics&) override;
         void resized() override;

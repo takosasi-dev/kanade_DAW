@@ -1,5 +1,5 @@
 ﻿cmake_minimum_required(VERSION 3.22)
-project(ScoreSmith VERSION 0.3.0 LANGUAGES C CXX)
+project(ScoreSmith VERSION 0.4.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -42,6 +42,13 @@ target_sources(ScoreSmith PRIVATE ${SS_SOURCES})
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/Source" FILES ${SS_SOURCES})
 
 target_include_directories(ScoreSmith PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source")
+
+# MSVC's default execution charset is the system ANSI codepage (CP932 on
+# Japanese-locale build machines), which silently re-encodes non-ASCII
+# narrow string literals in UTF-8 source files - corrupting anything wrapped
+# in juce::CharPointer_UTF8(...). /utf-8 forces both source and execution
+# charset to UTF-8; no-op on non-MSVC compilers.
+target_compile_options(ScoreSmith PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
 
 juce_add_binary_data(ScoreSmithData SOURCES
     Resources/lang/ja.txt

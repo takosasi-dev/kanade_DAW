@@ -34,7 +34,8 @@ namespace ss
             // mappings refer to, so inserting one in the middle silently
             // repoints every shortcut after it.
             toggleAutomation,
-            exportDawProject, importDawProject
+            exportDawProject, importDawProject,
+            showExtensionHelp
         };
     }
 
@@ -48,6 +49,12 @@ namespace ss
         // if a project ever gets big enough for the copy to be felt. */
     void performProjectEdit (Project&, const juce::String& transactionName,
                              std::function<void()> edit);
+
+    /** juce::UndoManager::setMaxNumberOfStoredUnits() takes a "size units" budget,
+        not a step count - each ProjectSnapshotAction reports this many units via
+        getSizeInUnits(). Multiply a user-facing "N undo steps" setting by this to
+        get the value that call actually wants. */
+    inline constexpr int projectSnapshotActionUnitsPerStep = 2048;
 
     /** Push a value straight at the live mixer strip without touching the
         document.  Used while a fader is being dragged so it is audible; the
@@ -246,6 +253,10 @@ namespace ss
 
     /** dB text that never says "-inf dB" in a 40px wide label. */
     juce::String formatDb (float db);
+
+    /** Pan as "L20"/"C"/"R45" for a -1..1 value - same L/C/R convention
+        AutomationEditor already uses for the 0..1 automation domain. */
+    juce::String formatPan (float pan);
 
     /** Quantise values in menu order, shared by every grid combo box in the app. */
     const std::vector<Quantise>& quantiseMenuValues();

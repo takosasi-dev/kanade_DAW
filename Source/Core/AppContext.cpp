@@ -5,6 +5,7 @@
 #include "Plugins/PluginManager.h"
 #include "AI/Transcriber.h"
 #include "AI/Generator.h"
+#include "Extensions/FormatExtensionManager.h"
 
 namespace ss
 {
@@ -16,6 +17,11 @@ namespace ss
         transcriber   = std::make_unique<Transcriber>();
         generator     = std::make_unique<Generator>();
         stemSeparator = std::make_unique<StemSeparator> (*settings);
+        formatExtensions = std::make_unique<FormatExtensionManager>();
+        {
+            juce::StringArray startupScanWarnings;   // shown in Preferences > Extensions, not at launch
+            formatExtensions->rescan (settings->getExtensionScanPaths(), startupScanWarnings);
+        }
 
         auto blank = std::make_unique<Project>();
         blank->sampleRate = settings->getDefaultSampleRate();
@@ -63,6 +69,7 @@ namespace ss
         engine.reset();
         project.reset();
         stemSeparator.reset();
+        formatExtensions.reset();
         generator.reset();
         transcriber.reset();
         plugins.reset();

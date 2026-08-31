@@ -243,7 +243,9 @@ namespace ss
             panKnob.onValueChange = [this]
             {
                 if (updating) return;
-                if (auto* live = liveStrip()) live->setPan ((float) panKnob.getValue());
+                const float v = (float) panKnob.getValue();
+                panValueLabel.setText (formatPan (v), juce::dontSendNotification);
+                if (auto* live = liveStrip()) live->setPan (v);
             };
             panKnob.onDragEnd = [this]
             {
@@ -253,6 +255,11 @@ namespace ss
                 else         commit    (TRANS ("Change pan"), [v] (Track& tr) { tr.pan = v; });
             };
             addAndMakeVisible (panKnob);
+
+            panValueLabel.setJustificationType (juce::Justification::centred);
+            panValueLabel.setFont (juce::Font (juce::FontOptions (10.0f)));
+            panValueLabel.setColour (juce::Label::textColourId, palette().textDim);
+            addAndMakeVisible (panValueLabel);
 
             muteButton.setButtonText ("M");
             muteButton.setClickingTogglesState (true);
@@ -382,6 +389,7 @@ namespace ss
             nameLabel.setText (b->name, juce::dontSendNotification);
             fader.setValue (b->gainDb, juce::dontSendNotification);
             panKnob.setValue (b->pan, juce::dontSendNotification);
+            panValueLabel.setText (formatPan (b->pan), juce::dontSendNotification);
             muteButton.setToggleState (b->muted, juce::dontSendNotification);
         }
         else if (auto* t = track())
@@ -389,6 +397,7 @@ namespace ss
             nameLabel.setText (t->name, juce::dontSendNotification);
             fader.setValue (t->gainDb, juce::dontSendNotification);
             panKnob.setValue (t->pan, juce::dontSendNotification);
+            panValueLabel.setText (formatPan (t->pan), juce::dontSendNotification);
             muteButton.setToggleState (t->muted, juce::dontSendNotification);
             soloButton.setToggleState (t->soloed, juce::dontSendNotification);
 
@@ -761,7 +770,12 @@ namespace ss
 
         if (! isMaster())
         {
+            const bool showPanValue = ctx.settings != nullptr && ctx.settings->getShowPanValueLabel();
+            panValueLabel.setVisible (showPanValue);
+
             panKnob.setBounds (area.removeFromTop (42).withSizeKeepingCentre (40, 40));
+            if (showPanValue)
+                panValueLabel.setBounds (area.removeFromTop (14));
             area.removeFromTop (2);
 
             auto buttons = area.removeFromBottom (22);
@@ -849,7 +863,7 @@ namespace ss
         addAndMakeVisible (addBusButton);
 
         rebuildStrips();
-        startTimerHz (30);
+        startTimerHz (ctx.settings != nullptr ? ctx.settings->getMixerMeterRefreshHz() : 30);
     }
 
     MixerView::~MixerView()

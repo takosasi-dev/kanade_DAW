@@ -22,6 +22,9 @@ namespace ss
         void pushTempoToProject();
         void pushTimeSignatureToProject();
         void pullFromProject();
+        /** Repopulates outputDeviceBox from the current driver's output device
+            list and re-selects whichever one is actually active. */
+        void refreshOutputDeviceBox();
 
         juce::ApplicationCommandManager& commands;
 
@@ -30,6 +33,7 @@ namespace ss
         juce::ComboBox   countInBox;
         juce::Slider     tempoSlider { juce::Slider::LinearBar, juce::Slider::TextBoxLeft };
         juce::ComboBox   timeSigNumerator, timeSigDenominator;
+        juce::ComboBox   outputDeviceBox;
         juce::Label      barBeatLabel, timecodeLabel, cpuLabel;
 
         juce::Rectangle<float> meterArea;

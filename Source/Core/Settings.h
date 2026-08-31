@@ -35,6 +35,22 @@ namespace ss
             is skipped on first run so it isn't mistaken for a tutorial). */
         juce::String getLastSeenVersion() const;       void setLastSeenVersion (const juce::String&);
 
+        /** Show each channel strip's pan knob value as text (e.g. "L20") in
+            addition to the knob itself. Off by default - the knob-only look
+            is the existing default and shouldn't change under existing users. */
+        bool getShowPanValueLabel() const;             void setShowPanValueLabel (bool);
+
+        /** How often the timeline (playhead, waveforms) and the mixer's level
+            meters repaint themselves, in Hz. Defaults match the previously
+            hardcoded values (24/30) so existing behaviour is unchanged until
+            a user actually lowers them for a machine that needs it. */
+        int getTimelineRefreshHz() const;              void setTimelineRefreshHz (int);
+        int getMixerMeterRefreshHz() const;            void setMixerMeterRefreshHz (int);
+
+        /** Undo history cap, in edit steps (not juce::UndoManager's internal
+            "size units" - see the call site that converts between the two). */
+        int getUndoHistoryLimit() const;               void setUndoHistoryLimit (int);
+
         // project defaults
         double getDefaultBpm() const;                  void setDefaultBpm (double);
         double getDefaultSampleRate() const;           void setDefaultSampleRate (double);
@@ -42,6 +58,10 @@ namespace ss
 
         // plugins (spec 9.6, 8.4.2)
         juce::StringArray getPluginScanPaths() const;  void setPluginScanPaths (const juce::StringArray&);
+
+        /** Folders scanned for format extensions (Source/Extensions/) - same
+            multi-folder shape as getPluginScanPaths(). */
+        juce::StringArray getExtensionScanPaths() const;  void setExtensionScanPaths (const juce::StringArray&);
         bool  getSandboxPlugins() const;               void setSandboxPlugins (bool);
         bool  getScanPluginsOnStartup() const;         void setScanPluginsOnStartup (bool);
 

@@ -427,7 +427,7 @@ namespace ss
         addAndMakeVisible (vScroll);
 
         rebuildHeaders();
-        startTimerHz (24);
+        startTimerHz (ctx.settings != nullptr ? ctx.settings->getTimelineRefreshHz() : 24);
     }
 
     TimelineView::~TimelineView()

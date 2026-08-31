@@ -287,11 +287,13 @@ public:
             auto restored = DockLayout::restore (layout, panelsById, names);
             expect (restored != nullptr, "the default layout must be well-formed enough to restore itself");
 
-            // Only 3 of the 8 real ids are supplied here, so the "rest"
-            // tabbed group defaultLayout() builds for every other id ends
-            // up empty and restore() collapses it away entirely (per its
-            // documented collapse rule) - the real shape is a 2-level
-            // nested split, not the full 3-level 4-column tree.
+            // Only 3 of the 8 real ids are supplied here, and "pianoRoll" is
+            // one of the ids defaultLayout() folds into the "rest" tabbed
+            // group (rather than giving it its own column), so with none of
+            // the other "rest" ids present, that group ends up holding
+            // exactly one panel: pianoRoll itself. The real shape is a
+            // 2-level nested split, not the full 3-level 4-column tree this
+            // layout used to produce.
             auto* outerSplit = dynamic_cast<DockSplit*> (restored.get());
             expect (outerSplit != nullptr, "expected the outer split (timeline | rest)");
 
@@ -303,7 +305,7 @@ public:
 
             auto* innerSplit = dynamic_cast<DockSplit*> (&outerSplit->getSecond());
             expect (innerSplit != nullptr,
-                    "expected the inner split (mixer | pianoRoll) since the 'rest' tab group is empty and collapses away");
+                    "expected the inner split (mixer | rest-group-containing-only-pianoRoll)");
 
             auto* mixerGroup = dynamic_cast<DockTabGroup*> (&innerSplit->getFirst());
             expect (mixerGroup != nullptr);

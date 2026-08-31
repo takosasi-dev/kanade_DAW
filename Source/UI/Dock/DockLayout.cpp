@@ -90,13 +90,17 @@ namespace ss::DockLayout
             return juce::var (obj);
         };
 
-        // The rest (transcribe/generate/notation/session/modular) share one
-        // tabbed group on the far right - built by listing every remaining
-        // id directly in the "panels" array, since defaultLayout has no live
-        // DockTabGroup to call addPanel on yet (it only ever produces a var).
+        // Piano Roll and the rest (transcribe/generate/notation/session/
+        // modular) share one tabbed group on the right - built by listing
+        // every remaining id directly in the "panels" array, since
+        // defaultLayout has no live DockTabGroup to call addPanel on yet
+        // (it only ever produces a var). Piano Roll used to get its own
+        // dedicated column; folding it in here means a fresh install opens
+        // with it reachable by tab, not shown until clicked, matching how
+        // Transcribe/Generate/etc already behave by default.
         juce::Array<juce::var> restIds;
         for (const auto& kv : displayNamesById)
-            if (kv.first != "timeline" && kv.first != "mixer" && kv.first != "pianoRoll")
+            if (kv.first != "timeline" && kv.first != "mixer")
                 restIds.add (kv.first);
 
         auto* restObj = new juce::DynamicObject();
@@ -104,14 +108,14 @@ namespace ss::DockLayout
         restObj->setProperty ("panels", restIds);
         restObj->setProperty ("active", 0);
 
-        // Timeline | Mixer | Piano Roll | (everything else, tabbed) as four
-        // side-by-side columns, via three nested horizontal splits - roughly
-        // 33% / 33% / 17% / 17% of the width.
+        // Timeline | Mixer | (everything else, tabbed) as three side-by-side
+        // columns, via two nested horizontal splits - roughly 33% / 33% / 33%
+        // of the width.
         return makeSplit (
             makeSingleGroup ("timeline"),
             makeSplit (
                 makeSingleGroup ("mixer"),
-                makeSplit (makeSingleGroup ("pianoRoll"), juce::var (restObj), 0.5),
+                juce::var (restObj),
                 0.5),
             0.33);
     }
