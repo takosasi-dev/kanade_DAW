@@ -58,6 +58,16 @@ namespace ss
             with it) is destroyed. */
         std::vector<DockPanel> extractAllPanels();
 
+        /** Splits the whole current tree in two and grafts a brand-new tab
+            group holding `panel` onto the right, making it active. Call this
+            only once the caller has confirmed `panel.id` isn't already docked
+            anywhere (this container's tree, or any other DockContainer such
+            as a floating window) - it always adds a fresh column, never
+            reuses an existing group. MainComponent::showView() uses this the
+            first time a view that starts outside the default layout (see
+            DockLayout::defaultLayout) is asked for. */
+        DockTabGroup& addAsNewColumn (DockPanel panel);
+
         /** Fired when a tab is dragged out past every DockContainer's bounds
             and released - MainComponent (Task 9) uses this to spin up a
             FloatingDockWindow at the drop point. Carries the panel that was

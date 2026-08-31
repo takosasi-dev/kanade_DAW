@@ -556,9 +556,37 @@ namespace ss
             menu.addSubMenu (TRANS ("Built-in instruments"), instruments);
 
             juce::PopupMenu pluginMenu;
-            descriptions = ctx.plugins->getKnownPluginList().getTypes();
+            const auto scanned = ctx.plugins->getKnownPluginList().getTypes();
+            const auto pinned = ctx.settings != nullptr ? ctx.settings->getPinnedPlugins() : juce::StringArray();
+
+            // Pinned plugins first (most-recently-pinned first), then everything
+            // else in scan order - descriptions is rebuilt in this same order so
+            // the popup result index (2000 + i) always lines up with it. A pinned
+            // identifier with no matching scanned plugin (e.g. since uninstalled)
+            // is simply skipped, so pinnedCount below is the number that actually
+            // matched rather than pinned.size().
+            for (const auto& id : pinned)
+                for (const auto& d : scanned)
+                    if (d.createIdentifierString() == id)
+                        descriptions.add (d);
+
+            const int pinnedCount = descriptions.size();
+
+            for (const auto& d : scanned)
+                if (! pinned.contains (d.createIdentifierString()))
+                    descriptions.add (d);
+
+            if (pinnedCount > 0)
+                pluginMenu.addSectionHeader (TRANS ("Favourites"));
+
             for (int i = 0; i < descriptions.size(); ++i)
+            {
+                if (i == pinnedCount && pinnedCount > 0)
+                    pluginMenu.addSectionHeader (TRANS ("All plugins"));
+
                 pluginMenu.addItem (2000 + i, descriptions[i].name + "  (" + descriptions[i].pluginFormatName + ")");
+            }
+
             if (descriptions.isEmpty())
                 pluginMenu.addItem (99, TRANS ("No plugins found - scan in Preferences"), false);
             menu.addSubMenu (TRANS ("Plugins"), pluginMenu);
@@ -613,19 +641,82 @@ namespace ss
 
         const auto ref = slotRefs[(size_t) buttonIndex];
 
+        int slotCount = 0;
+        if (ref.builtin)
+        {
+            if (ctx.project != nullptr)
+                if (auto* chain = chainIn (*ctx.project, trackId, busId))
+                    slotCount = (int) chain->size();
+        }
+        else if (auto* t = track())
+            slotCount = (int) t->plugins.size();
+
+        juce::String identifier;
+        bool isPinned = false;
+        if (! ref.builtin)
+            if (auto* t = track(); t != nullptr && ref.index < (int) t->plugins.size())
+            {
+                identifier = t->plugins[(size_t) ref.index].identifier;
+                isPinned = ctx.settings != nullptr && ctx.settings->getPinnedPlugins().contains (identifier);
+            }
+
         juce::PopupMenu menu;
         menu.addItem (1, ref.builtin ? TRANS ("Edit") : TRANS ("Open plugin editor"));
         menu.addItem (2, TRANS ("Bypass"));
         menu.addSeparator();
+        menu.addItem (4, TRANS ("Move up"), ref.index > 0);
+        menu.addItem (5, TRANS ("Move down"), ref.index < slotCount - 1);
+
+        if (! ref.builtin && identifier.isNotEmpty())
+        {
+            menu.addSeparator();
+            menu.addItem (6, isPinned ? TRANS ("Unpin from favourites") : TRANS ("Pin to favourites"));
+        }
+
+        menu.addSeparator();
         menu.addItem (3, TRANS ("Remove"));
 
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (slotButtons[buttonIndex]),
-                            [this, ref] (int result)
+                            [this, ref, identifier, isPinned] (int result)
         {
             if (result == 1)
             {
                 if (ref.builtin) owner.showBuiltinFxEditor (trackId, ref.index, busId);
                 else             owner.showPluginEditor (trackId, ref.index);
+            }
+            else if (result == 6)
+            {
+                if (ctx.settings != nullptr)
+                {
+                    auto pinned = ctx.settings->getPinnedPlugins();
+                    pinned.removeString (identifier);
+                    if (! isPinned)
+                        pinned.insert (0, identifier);
+                    ctx.settings->setPinnedPlugins (pinned);
+                }
+            }
+            else if (result == 4 || result == 5)
+            {
+                const int other = ref.index + (result == 4 ? -1 : 1);
+
+                if (ref.builtin)
+                {
+                    commitChain (TRANS ("Move effect"), [ref, other] (std::vector<BuiltinFxSlot>& chain)
+                    {
+                        if (ref.index >= 0 && ref.index < (int) chain.size()
+                            && other >= 0 && other < (int) chain.size())
+                            std::swap (chain[(size_t) ref.index], chain[(size_t) other]);
+                    });
+                }
+                else
+                {
+                    commit (TRANS ("Move plugin"), [ref, other] (Track& t)
+                    {
+                        if (ref.index >= 0 && ref.index < (int) t.plugins.size()
+                            && other >= 0 && other < (int) t.plugins.size())
+                            std::swap (t.plugins[(size_t) ref.index], t.plugins[(size_t) other]);
+                    });
+                }
             }
             else if (result == 2)
             {

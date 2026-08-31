@@ -8,6 +8,12 @@ namespace ss
         std::vector<std::pair<juce::String, juce::StringArray>> releaseNotes()
         {
             return {
+                { "0.5.0", juce::StringArray {
+                    TRANS ("You can now reorder plugins and built-in effects within a track (Move up/down in the slot's right-click menu)."),
+                    TRANS ("Pin your favourite plugins to the top of the Add plugin menu."),
+                    TRANS ("Generate/Modular/Notation/Piano Roll/Session/Transcribe no longer clutter the default startup layout - open them from the View menu when you need them."),
+                    TRANS ("Fixed some out-of-process plugin editors (e.g. ChowDSP plugins) rendering solid black.")
+                } },
                 { "0.4.0", juce::StringArray {
                     TRANS ("Third-party format extensions: add new import/export file formats with a manifest.json and an executable of your choice. See Help > \"How to build an extension\" or the README."),
                     TRANS ("Mixer channel strips can now show a numeric pan value."),

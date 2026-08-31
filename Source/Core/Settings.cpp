@@ -107,6 +107,16 @@ namespace ss
         props.getUserSettings()->setValue ("extensionScanPaths", v.joinIntoString ("\n"));
     }
 
+    juce::StringArray Settings::getPinnedPlugins() const
+    {
+        return splitPaths (props.getUserSettings()->getValue ("pinnedPlugins"));
+    }
+
+    void Settings::setPinnedPlugins (const juce::StringArray& v)
+    {
+        props.getUserSettings()->setValue ("pinnedPlugins", v.joinIntoString ("\n"));
+    }
+
     juce::StringArray Settings::getSampleLibraryFolders() const
     {
         return splitPaths (props.getUserSettings()->getValue ("sampleFolders"));

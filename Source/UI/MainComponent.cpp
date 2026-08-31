@@ -222,13 +222,13 @@ namespace ss
                        "dropped into any track as an instrument or an effect."),
                 TRANS ("Planned for Phase 3"));
 
-            const std::map<juce::String, juce::Component*> panelsById {
+            panelsById = {
                 { "timeline", timeline.get() }, { "pianoRoll", pianoRoll.get() }, { "mixer", mixer.get() },
                 { "transcribe", transcribe.get() }, { "generate", generate.get() }, { "notation", notation.get() },
                 { "session", session.get() }, { "modular", modular.get() }
             };
 
-            const std::map<juce::String, juce::String> displayNamesById {
+            displayNamesById = {
                 { "timeline", TRANS ("Timeline") }, { "pianoRoll", TRANS ("Piano Roll") },
                 { "mixer", TRANS ("Mixer") }, { "transcribe", TRANS ("Transcribe") },
                 { "generate", TRANS ("Generate") }, { "notation", TRANS ("Notation") },
@@ -433,15 +433,36 @@ namespace ss
             };
 
             if (auto* group = findGroupContaining (workspace->getRoot()))
+            {
                 group->setActivePanel (group->indexOfPanel (id));
+            }
             else
+            {
+                bool foundFloating = false;
+
                 for (auto& floating : floatingWindows)
                     if (auto* floatingGroup = findGroupContaining (floating->getDockContainer().getRoot()))
                     {
                         floatingGroup->setActivePanel (floatingGroup->indexOfPanel (id));
                         floating->toFront (true);
+                        foundFloating = true;
                         break;
                     }
+
+                // Not docked anywhere yet - true for every view the default
+                // layout starts without a column for (see DockLayout::
+                // defaultLayout). Graft one in now, on first request, rather
+                // than leaving the View menu/keyboard shortcut silently do
+                // nothing.
+                if (! foundFloating)
+                {
+                    const auto panelIt = panelsById.find (id);
+                    const auto nameIt = displayNamesById.find (id);
+
+                    if (panelIt != panelsById.end() && nameIt != displayNamesById.end())
+                        workspace->addAsNewColumn ({ id, nameIt->second, panelIt->second });
+                }
+            }
 
             // The timeline's "Transcribe this range" hands over here.
             if (view == View::transcribe && transcribe != nullptr)
@@ -1123,6 +1144,12 @@ namespace ss
         std::unique_ptr<SessionView>     session;
         std::unique_ptr<PlaceholderView> modular;
 
+        // Built once in the constructor, kept around so showView()'s fallback
+        // (DockContainer::addAsNewColumn) can look up a view it needs to graft
+        // in without re-deriving this same id -> component/name mapping.
+        std::map<juce::String, juce::Component*> panelsById;
+        std::map<juce::String, juce::String>     displayNamesById;
+
         std::unique_ptr<juce::StretchableLayoutResizerBar> leftBar, rightBar;
         juce::StretchableLayoutManager layout;
 
@@ -1294,6 +1321,7 @@ namespace ss
                 menu.addSeparator();
                 menu.addItem (20002, TRANS ("Save current layout as startup default"));
                 menu.addItem (20003, TRANS ("Reset startup layout (use last session instead)"));
+                menu.addItem (20004, TRANS ("Reset to built-in default layout"));
                 break;
 
             case 5:
@@ -1368,6 +1396,23 @@ namespace ss
         {
             impl->ctx.settings->setStartupDockLayoutName ({});
             impl->ctx.settings->deleteDockLayout (DockLayout::startupLayoutName);
+        }
+        else if (menuItemID == 20004)
+        {
+            // 20003 only clears an explicit startup override, falling back to
+            // lastSessionLayoutName - which is itself an auto-saved snapshot
+            // of wherever the dock last happened to be, not the code's actual
+            // built-in defaultLayout(). This clears that snapshot too, so the
+            // next launch genuinely falls through to defaultLayout().
+            impl->ctx.settings->setStartupDockLayoutName ({});
+            impl->ctx.settings->deleteDockLayout (DockLayout::startupLayoutName);
+            impl->ctx.settings->deleteDockLayout (DockLayout::lastSessionLayoutName);
+
+            juce::AlertWindow::showMessageBoxAsync (
+                juce::MessageBoxIconType::InfoIcon,
+                TRANS ("Layout reset"),
+                TRANS ("Restart KANADE DAW to see the built-in default layout."),
+                TRANS ("OK"), this);
         }
     }
 

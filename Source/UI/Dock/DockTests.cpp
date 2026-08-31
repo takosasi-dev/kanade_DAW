@@ -260,7 +260,7 @@ public:
             expect (DockLayout::restore (juce::var (obj), panelsById, {}) == nullptr);
         }
 
-        beginTest ("DockLayout::defaultLayout produces a tree containing every supplied id");
+        beginTest ("DockLayout::defaultLayout produces just Timeline | Mixer");
         {
             std::map<juce::String, juce::String> names {
                 { "timeline", "Timeline" }, { "mixer", "Mixer" }, { "pianoRoll", "Piano Roll" }
@@ -287,37 +287,30 @@ public:
             auto restored = DockLayout::restore (layout, panelsById, names);
             expect (restored != nullptr, "the default layout must be well-formed enough to restore itself");
 
-            // Only 3 of the 8 real ids are supplied here, and "pianoRoll" is
-            // one of the ids defaultLayout() folds into the "rest" tabbed
-            // group (rather than giving it its own column), so with none of
-            // the other "rest" ids present, that group ends up holding
-            // exactly one panel: pianoRoll itself. The real shape is a
-            // 2-level nested split, not the full 3-level 4-column tree this
-            // layout used to produce.
-            auto* outerSplit = dynamic_cast<DockSplit*> (restored.get());
-            expect (outerSplit != nullptr, "expected the outer split (timeline | rest)");
+            // pianoRoll (and every other id besides timeline/mixer) used to be
+            // folded into a third "rest" tabbed column here, defaulting to
+            // whichever id sorted first alphabetically (Generate - greeting a
+            // fresh install with the busiest panel in the app). The default
+            // layout is now just this one split; every other view is grafted
+            // in as its own column on demand, the first time
+            // MainComponent::showView() is asked for it (see
+            // DockContainer::addAsNewColumn), so pianoRoll being supplied
+            // here and still absent from the tree is the correct shape, not
+            // an oversight.
+            auto* split = dynamic_cast<DockSplit*> (restored.get());
+            expect (split != nullptr, "expected a single split (timeline | mixer)");
 
-            auto* timelineGroup = dynamic_cast<DockTabGroup*> (&outerSplit->getFirst());
+            auto* timelineGroup = dynamic_cast<DockTabGroup*> (&split->getFirst());
             expect (timelineGroup != nullptr);
             expectEquals (timelineGroup->getNumPanels(), 1);
             expectEquals (timelineGroup->getPanel (0)->id, juce::String ("timeline"));
             expectEquals (timelineGroup->getPanel (0)->displayName, juce::String ("Timeline"));
 
-            auto* innerSplit = dynamic_cast<DockSplit*> (&outerSplit->getSecond());
-            expect (innerSplit != nullptr,
-                    "expected the inner split (mixer | rest-group-containing-only-pianoRoll)");
-
-            auto* mixerGroup = dynamic_cast<DockTabGroup*> (&innerSplit->getFirst());
+            auto* mixerGroup = dynamic_cast<DockTabGroup*> (&split->getSecond());
             expect (mixerGroup != nullptr);
             expectEquals (mixerGroup->getNumPanels(), 1);
             expectEquals (mixerGroup->getPanel (0)->id, juce::String ("mixer"));
             expectEquals (mixerGroup->getPanel (0)->displayName, juce::String ("Mixer"));
-
-            auto* pianoRollGroup = dynamic_cast<DockTabGroup*> (&innerSplit->getSecond());
-            expect (pianoRollGroup != nullptr);
-            expectEquals (pianoRollGroup->getNumPanels(), 1);
-            expectEquals (pianoRollGroup->getPanel (0)->id, juce::String ("pianoRoll"));
-            expectEquals (pianoRollGroup->getPanel (0)->displayName, juce::String ("Piano Roll"));
         }
 
         beginTest ("clampToNearestDisplay leaves an already-on-screen rect untouched");
@@ -729,6 +722,44 @@ public:
             expectEquals (rightBottomPtr->getNumPanels(), 0);
             expectEquals ((int) container.extractAllPanels().size(), 0,
                           "a second call on the now-empty tree returns nothing");
+        }
+
+        beginTest ("DockContainer::addAsNewColumn grafts a fresh, active column onto the whole existing tree");
+        {
+            juce::Label timelineContent, mixerContent, generateContent;
+
+            auto timelineGroup = std::make_unique<DockTabGroup>();
+            timelineGroup->addPanel ({ "timeline", "Timeline", &timelineContent });
+
+            auto mixerGroup = std::make_unique<DockTabGroup>();
+            mixerGroup->addPanel ({ "mixer", "Mixer", &mixerContent });
+
+            auto rootSplit = std::make_unique<DockSplit> (DockSplit::Direction::horizontal,
+                                                          std::move (timelineGroup), std::move (mixerGroup));
+            auto* oldRootPtr = rootSplit.get();
+
+            DockContainer container (std::move (rootSplit));
+
+            auto& newGroup = container.addAsNewColumn ({ "generate", "Generate", &generateContent });
+
+            expectEquals (newGroup.getNumPanels(), 1);
+            expectEquals (newGroup.getPanel (0)->id, juce::String ("generate"));
+            expect (newGroup.getPanel (0)->content == (juce::Component*) &generateContent);
+            expectEquals (newGroup.indexOfPanel ("generate"), 0,
+                          "the sole panel of a freshly created group must already be its active tab");
+
+            auto* newRootSplit = dynamic_cast<DockSplit*> (&container.getRoot());
+            expect (newRootSplit != nullptr, "the whole old tree must now be one side of a new split");
+            expect (&newRootSplit->getFirst() == static_cast<DockNode*> (oldRootPtr),
+                    "the old timeline|mixer split must survive intact as the first child");
+            expect (&newRootSplit->getSecond() == static_cast<DockNode*> (&newGroup),
+                    "the new group must be grafted on as the second child");
+
+            // The old tree is untouched - both original panels still resolve
+            // exactly where they always did.
+            auto* survivingTimeline = dynamic_cast<DockTabGroup*> (&dynamic_cast<DockSplit&> (newRootSplit->getFirst()).getFirst());
+            expect (survivingTimeline != nullptr);
+            expectEquals (survivingTimeline->getPanel (0)->id, juce::String ("timeline"));
         }
     }
 };

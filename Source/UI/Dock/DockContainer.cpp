@@ -261,4 +261,23 @@ namespace ss
         walk (*root);
         return extracted;
     }
+
+    DockTabGroup& DockContainer::addAsNewColumn (DockPanel panel)
+    {
+        auto newGroup = std::make_unique<DockTabGroup>();
+        newGroup->addPanel (panel);
+        auto* groupPtr = newGroup.get();
+
+        // root.get() as both the tree to search AND the target: the very
+        // first identity check inside splitAroundTarget matches immediately,
+        // so this always wraps the WHOLE current tree in a new split with
+        // newGroup as its second child - never digs into a sub-branch.
+        splitAroundTarget (root, root.get(), newGroup, DockSplit::Direction::horizontal, false);
+
+        addAndMakeVisible (*root);
+        resized();
+        repaint();
+
+        return *groupPtr;
+    }
 }

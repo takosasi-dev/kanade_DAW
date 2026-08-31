@@ -90,33 +90,20 @@ namespace ss::DockLayout
             return juce::var (obj);
         };
 
-        // Piano Roll and the rest (transcribe/generate/notation/session/
-        // modular) share one tabbed group on the right - built by listing
-        // every remaining id directly in the "panels" array, since
-        // defaultLayout has no live DockTabGroup to call addPanel on yet
-        // (it only ever produces a var). Piano Roll used to get its own
-        // dedicated column; folding it in here means a fresh install opens
-        // with it reachable by tab, not shown until clicked, matching how
-        // Transcribe/Generate/etc already behave by default.
-        juce::Array<juce::var> restIds;
-        for (const auto& kv : displayNamesById)
-            if (kv.first != "timeline" && kv.first != "mixer")
-                restIds.add (kv.first);
-
-        auto* restObj = new juce::DynamicObject();
-        restObj->setProperty ("type", "tabGroup");
-        restObj->setProperty ("panels", restIds);
-        restObj->setProperty ("active", 0);
-
-        // Timeline | Mixer | (everything else, tabbed) as three side-by-side
-        // columns, via two nested horizontal splits - roughly 33% / 33% / 33%
-        // of the width.
+        // Timeline | Mixer, 50/50. Piano Roll/Transcribe/Generate/Notation/
+        // Session/Modular used to share a third tabbed column here, but its
+        // default-active tab was whichever id happened to sort first in
+        // displayNamesById (a std::map) - Generate, greeting a fresh install
+        // with the busiest panel in the app for a reason that had nothing to
+        // do with what most sessions actually need first. They now start
+        // with no column at all: MainComponent::showView() grafts each one
+        // in on its own, the first time the View menu/shortcut asks for it
+        // (see DockContainer::addAsNewColumn), so nothing is lost - they are
+        // simply absent until requested rather than occupying screen space
+        // by default.
         return makeSplit (
             makeSingleGroup ("timeline"),
-            makeSplit (
-                makeSingleGroup ("mixer"),
-                juce::var (restObj),
-                0.5),
-            0.33);
+            makeSingleGroup ("mixer"),
+            0.5);
     }
 }

@@ -65,6 +65,10 @@ namespace ss
         bool  getSandboxPlugins() const;               void setSandboxPlugins (bool);
         bool  getScanPluginsOnStartup() const;         void setScanPluginsOnStartup (bool);
 
+        /** Plugin identifiers (PluginDescription::createIdentifierString()) pinned
+            to the top of the "Add plugin" menu, most-recently-pinned first. */
+        juce::StringArray getPinnedPlugins() const;    void setPinnedPlugins (const juce::StringArray&);
+
         // paths
         juce::File getProjectsFolder() const;          void setProjectsFolder (const juce::File&);
         juce::File getCacheFolder() const;             void setCacheFolder (const juce::File&);
