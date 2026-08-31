@@ -1,0 +1,8 @@
+{
+  "id": "com.kanade-daw-examples.dawproject-dump",
+  "name": "DAWproject Summary Dump",
+  "version": "1.0.0",
+  "fileExtension": "txt",
+  "direction": "export",
+  "executable": "dawproject-dump.exe"
+}

@@ -8,6 +8,14 @@ namespace ss
         std::vector<std::pair<juce::String, juce::StringArray>> releaseNotes()
         {
             return {
+                { "0.6.0", juce::StringArray {
+                    TRANS ("System Plugins now have their own menu (between View and AI) instead of being scattered across File and Help."),
+                    TRANS ("Running a system plugin no longer freezes KANADE DAW - it shows progress and a Cancel button instead."),
+                    TRANS ("A system plugin's manifest can now declare a pre-run settings dialog (sliders, checkboxes, dropdowns) and report real progress instead of an indeterminate spinner."),
+                    TRANS ("A system plugin can declare additionalInputs - a file it asks the user to pick, or KANADE DAW's own rendered mixdown - resolved automatically before it runs."),
+                    TRANS ("A system plugin can opt out of the settings dialog and the 120-second timeout entirely if it wants to show its own window (customUI)."),
+                    TRANS ("Three example system plugins are now bundled: a .dawproject dump tool, a Reaper project bridge, and Video + Audio Mux (combine an existing video with your KANADE DAW mix, with an adjustable balance slider).")
+                } },
                 { "0.5.2", juce::StringArray {
                     TRANS ("Adding, removing or reordering a plugin no longer reloads every other plugin on the same track - just the slot that actually changed, so playback glitches less.")
                 } },

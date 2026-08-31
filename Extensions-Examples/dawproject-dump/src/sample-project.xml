@@ -1,0 +1,44 @@
+<Project version="1.0">
+  <Application name="Bitwig Studio" version="5.0.9"/>
+  <Transport>
+    <Tempo unit="bpm" value="128"/>
+    <TimeSignature numerator="7" denominator="8"/>
+  </Transport>
+  <Structure>
+    <Track id="idGuitar" name="Guitar" contentType="audio" color="#ff0000">
+      <Channel id="chGuitar" role="regular" destination="chBus" solo="false">
+        <Volume unit="decibel" value="-4.5"/>
+        <Pan unit="linear" value="0.25"/>
+        <Mute value="true"/>
+      </Channel>
+    </Track>
+    <Track id="idSynth" name="Synth" contentType="notes">
+      <Channel id="chSynth" role="regular" destination="chBus"/>
+    </Track>
+    <Track id="idBus" name="Drum Bus" contentType="audio">
+      <Channel id="chBus" role="submix" destination="chMaster"/>
+    </Track>
+    <Track id="idMaster" name="Master" contentType="audio">
+      <Channel id="chMaster" role="master"/>
+    </Track>
+  </Structure>
+  <Arrangement>
+    <Lanes timeUnit="beats">
+      <Clips track="idGuitar">
+        <Clip time="4" duration="2">
+          <Audio channels="2" sampleRate="48000" duration="0.1"><File path="audio/take.wav"/></Audio>
+        </Clip>
+        <Clip time="8" duration="2">
+          <Audio channels="2" sampleRate="48000" duration="0.1"><File path="audio/alt/take.wav"/></Audio>
+        </Clip>
+      </Clips>
+      <Clips track="idSynth">
+        <Clip time="0" duration="4">
+          <Notes>
+            <Note time="0" duration="1" key="60" channel="0" vel="1.0"/>
+          </Notes>
+        </Clip>
+      </Clips>
+    </Lanes>
+  </Arrangement>
+</Project>

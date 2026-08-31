@@ -62,7 +62,7 @@
 | セッションビュー(9.10) | 実装 | track × scene のクリップランチャー画面。仕様書ではPhase 3+扱いだったが前倒しで実装 |
 | ドッキングレイアウトシステム | 実装 | パネルをタブとして自由にドラッグ&ドッキングできる汎用ドックコンテナ(`Source/UI/Dock/`)。10タスクのSDDで実装。デフォルト起動レイアウトでPiano Rollを非表示化(タブに格納、必要時に自分でドッキング) |
 | DAWproject相互運用 | 実装 | Bitwig/Studio One/Cubase等が対応する[DAWproject](https://github.com/bitwig/dawproject)形式のフルフィデリティ import/export。トラック・チャンネル・バス・ルーティング・センド・テンポ・オートメーション・マーカー・シーン・プラグインstateまで往復対応 |
-| 拡張プラグインAPI(フォーマット変換) | 実装 | サードパーティが `manifest.json` + 任意言語の実行ファイルで import/export フォーマットを追加できる仕組み。DAWprojectを中間形式として経由する外部プロセス方式。設定 > Extensions タブでスキャン対象フォルダを複数登録可能。作り方はアプリ内Help「拡張機能の作り方」とREADMEの両方に記載 |
+| 拡張プラグインAPI(フォーマット変換) | 実装 | サードパーティが `manifest.json` + 任意言語の実行ファイルで import/export フォーマットを追加できる仕組み。DAWprojectを中間形式として経由する外部プロセス方式。設定 > Extensions タブでスキャン対象フォルダを複数登録可能。作り方はアプリ内Help「拡張機能の作り方」とREADMEの両方に記載(友人からのフィードバック対応) |
 | UTAU連携 Phase 1 | 実装 | `.ust`ファイルの読み込み→ボイスバンク(oto.ini)割り当て→外部リサンプラでのレンダリング→通常のオーディオクリップと同じ経路での再生、`.ssproj`への永続化まで。歌詞とエイリアスの直接一致のみ対応(VCV/CVVC前後接続の自動選択、`.ustx`、専用編集UIはPhase 2) |
 | パン数値表示 | 実装 | ミキサーチャンネルストリップにパン値の数値表示オプションを追加 |
 | パフォーマンス設定 | 実装 | 再描画レート・Undo履歴上限を設定画面から調整可能に |
@@ -145,9 +145,46 @@ grep -rn "ponytail:" Source/
 実行方法(実行ファイル名は`KANADE DAW.exe` — 製品名変更後、`ScoreSmith_artefacts`ディレクトリ名自体は据え置き):
 
 ```powershell
-& ".\build\ScoreSmith_artefacts\Debug\KANADE DAW.exe" --run-tests
+& "E:/MIDIDAW/build/ScoreSmith_artefacts/Debug/KANADE DAW.exe" --run-tests
 echo $LASTEXITCODE     # 0 = 全通過
 # stdoutは持たないGUIサブシステムバイナリのため、結果は同ディレクトリの test-results.txt を読むこと
 ```
 
 このテストは実際に1件バグを見つけている: イコールパワーパン則が最右端で `std::cos(pi/2)` の浮動小数点誤差により約 -4.4e-8 を返し、無音側チャンネルの符号が反転していた。
+
+---
+
+## GitHub公開について(2026-08-29時点)
+
+**現状: 公開済み。** `https://github.com/nakano-kouki/kanade_DAW` として2026-08-27〜28に初回公開済み。ローカルの公開用ミラー`L:\github公開用\MIDI&DAW\`と`origin/main`のHEADは完全一致(`8498c34`)、working treeもクリーンで、pushし忘れの差分はない。
+
+公開リポジトリは**私用の開発リポジトリ(ここ、`E:\MIDI&DAW`、123コミット)とは完全に別のgit履歴**(GitHub公開ルール通り、履歴を分けて`git init`し直したもの)。公開側の全コミットは以下の6つだけで、私用側の試行錯誤の履歴は一切出ていない:
+
+```
+8498c34 Bump version to 0.3.0: add DAWproject import/export   (tag: v0.3.0)
+1432519 Bump version to 0.2.0 and add its What's New entry     (tag: v0.2.0)
+7cf5a0f Fix VST plugin crash-on-editor bugs; add startup layout and What's New dialog
+149afc6 Move exe distribution to GitHub Releases
+d2ccbaf Add MIT license
+0aa81eb Initial public release of KANADE DAW                   (tag: v0.1.0)
+```
+
+exe本体はリポジトリに含めず、GitHub Releasesへ添付する運用(リリースルール通り)。
+
+**訂正(2026-08-31)**: 上記は当初「UTAU連携・ドッキング・セッションビューも未公開」と書いていたが誤り。実際に公開側`v0.1.0`〜`v0.3.0`のツリーを直接確認したところ、UTAU連携Phase1・ドッキングレイアウトシステム・セッションビュー・DAWproject相互運用は**いずれも既に`v0.1.0`の時点で公開済み**だった(私用側で08-26に完成した時点で、直後の初回公開(08-27)に含まれていたため)。`git remote -v`や上位の私用コミット数だけを見て「未公開」と判断せず、実際に公開側のツリー内容を`git ls-tree`等で直接比較しないと機能単位の公開状況は分からない、という教訓が今回さらに積み上がった。
+
+公開ミラーに実際にまだ反映されていない機能は、v0.3.0時点のツリーと私用側HEADを直接diffして確認した以下の4点のみ:
+
+- **拡張プラグインAPI(フォーマット変換)** — 今回のセッションでmainにマージしたばかりの最新機能
+- パン数値表示、パフォーマンス設定、出力デバイスのクイック切替
+
+次に公開を更新する際の手順(GitHub公開ルール・リリースルール通り):
+1. 私用側`E:\MIDI&DAW`の安定した状態を`L:\github公開用\MIDI&DAW\`へ上書きコピー
+2. 公開前チェックリスト(機密情報・個人情報・内部限定情報・著作権・ビルド成果物のgitignore漏れ)を確認
+3. `README.md`を公開版にもコピーし、`docs/STATUS.md`は本セクション(GitHub公開について)を除いた公開安全版を別途作成、CHANGELOG.mdに`## [0.4.0]`の追記
+4. MINOR相当の新機能4点がまとまっているため、次のタグは`v0.4.0`が妥当(セマンティックバージョニング: MINOR=新機能追加)
+5. `git add -A` → `git commit` → `git push` → `git tag v0.4.0` → `git push --tags` → GitHub ReleasesにCHANGELOGの該当箇所を転記、新しい`KANADE DAW.exe`を添付
+
+**未決着の命名問題**: 対外的な製品名・実際に取得したGitHubリポジトリ名はいずれも「KANADE DAW」系(`kanade_DAW`)。一方で、CMakeのプロジェクト名(`ScoreSmith`)、ビルド成果物ディレクトリ名(`ScoreSmith_artefacts`)、ソースコード内のnamespace(`ss::`)、`docs/`配下の設計書・計画書のファイル名や本文、そして**ローカルの公開用ミラーフォルダ名自体(`L:\github公開用\MIDI&DAW\`)**は、依然として旧称「MIDI&DAW」「ScoreSmith」のままになっている。命名・フォルダ構成ルール文書は「正式名称はScoreSmithなのでリポジトリ名は`scoresmith`に揃えるのが自然」と書いているが、実際に確定した対外名称は`kanade_DAW`であり、この文書の記述はもう古い。当面実害はないが、いずれ`L:\github公開用\kanade_DAW\`のようにローカルフォルダ名もリポジトリ名と揃えておくと今後の混乱が減る。
+
+**現在の私用作業フォルダ名`E:\MIDI&DAW`の`&`はビルドツールを壊す既知の問題**(`E:\MIDIDAW`ジャンクション経由の運用は私用側限定の応急処置、詳細は[[../プロジェクトの命名・フォルダ構成について/命名・フォルダ構成ルール|命名・フォルダ構成ルール]])。公開用ミラー側は既にexe/ソースのみのコピーなのでビルド自体は影響を受けないが、フォルダ名の記号は上記の通りいずれ解消したい。

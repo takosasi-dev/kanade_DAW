@@ -1,0 +1,8 @@
+{
+  "id": "com.kanade-daw-examples.reaper-bridge",
+  "name": "Reaper (.rpp) Export",
+  "version": "1.0.0",
+  "fileExtension": "rpp",
+  "direction": "export",
+  "executable": "reaper-bridge.exe"
+}

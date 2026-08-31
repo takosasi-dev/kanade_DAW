@@ -5,5 +5,5 @@ build/
 *.tmp
 *.ssproj.bak
 Media/
-*.pdb
-*.exe
+.worktrees/
+.superpowers/

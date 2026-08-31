@@ -8,6 +8,7 @@
 #include "IO/FileIO.h"
 #include "Plugins/PluginManager.h"
 #include "UI/ExtensionHelpDialog.h"
+#include "UI/ExtensionSettingsDialog.h"
 #include "UI/GenerateView.h"
 #include "UI/MixerView.h"
 #include "UI/NotationView.h"
@@ -967,17 +968,161 @@ namespace ss
                 if (file.getFullPathName().isEmpty() || ctx.project == nullptr) return;
                 file = file.withFileExtension (extension.fileExtension);
 
-                juce::String error;
-                juce::StringArray warnings;
-                ExternalFormatExtensionRunner runner;
-                if (! io::runFormatExtensionExport (extension, *ctx.project, *ctx.plugins, file,
-                                                    runner, error, warnings))
+                gatherAdditionalInputs (extension, 0, {}, [this, extension, file] (std::map<juce::String, juce::String> resolved)
+                {
+                    if (extension.settings.empty())
+                    {
+                        finishExportViaExtension (extension, file, std::move (resolved));
+                        return;
+                    }
+
+                    ExtensionSettingsDialog::launch (extension.name, extension.settings,
+                        [this, extension, file, resolved] (ExtensionSettingsDialog::Result settingsResult) mutable
+                    {
+                        if (! settingsResult.has_value())
+                        {
+                            // A mixdownRender additionalInput may already have rendered
+                            // a temp WAV before this dialog ever opened (gatherAdditionalInputs
+                            // runs first) - it won't get cleaned up any other way now that
+                            // finishExportViaExtension is never going to run.
+                            deleteMixdownRenderTemps (extension, resolved);
+                            return;   // user cancelled the settings dialog - drop the whole export
+                        }
+
+                        for (auto& [envVar, value] : *settingsResult)
+                            resolved[envVar] = value;
+
+                        finishExportViaExtension (extension, file, std::move (resolved));
+                    });
+                });
+            });
+        }
+
+        /** Resolves extension.additionalInputs[index..end] one at a time -
+            userFile via a chained FileChooser, mixdownRender via a direct
+            renderToFile() call - then calls `then` with everything gathered
+            so far merged in. Cancelling any userFile chooser silently drops
+            the whole export (matches cancelling the output-file chooser
+            above). Recursion depth is bounded by additionalInputs.size(),
+            which is a handful at most - not a stack-depth concern. */
+        void gatherAdditionalInputs (const FormatExtension& extension, size_t index,
+                                     std::map<juce::String, juce::String> resolvedSoFar,
+                                     std::function<void (std::map<juce::String, juce::String>)> then)
+        {
+            if (index >= extension.additionalInputs.size())
+            {
+                then (std::move (resolvedSoFar));
+                return;
+            }
+
+            const auto& input = extension.additionalInputs[index];
+
+            if (input.kind == AdditionalInputKind::userFile)
+            {
+                chooser = std::make_unique<juce::FileChooser> (input.prompt, juce::File(), input.fileFilter);
+                chooser->launchAsync (juce::FileBrowserComponent::openMode
+                                        | juce::FileBrowserComponent::canSelectFiles,
+                                      [this, extension, index, resolvedSoFar, then] (const juce::FileChooser& fc) mutable
+                {
+                    auto picked = fc.getResult();
+                    if (picked.getFullPathName().isEmpty())
+                        return;   // cancelled - drop the whole export, same as the output chooser
+
+                    resolvedSoFar[extension.additionalInputs[index].envVar] = picked.getFullPathName();
+                    gatherAdditionalInputs (extension, index + 1, std::move (resolvedSoFar), std::move (then));
+                });
+                return;
+            }
+
+            // mixdownRender: no user prompt, but rendering can take a moment -
+            // same TaskPanel background-task pattern exportAudio() already uses.
+            if (ctx.project == nullptr || ctx.engine == nullptr)
+                return;
+
+            const auto renderFile = juce::File::createTempFile ("wav");
+            const double endBeat = juce::jmax (1.0, ctx.project->endBeats());
+            const int bitDepth = ctx.project->bitDepth;
+            const double sampleRate = ctx.project->sampleRate;
+            auto renderError = std::make_shared<juce::String>();
+
+            task.run (TRANS ("Rendering..."), [this, renderFile, endBeat, bitDepth, sampleRate, renderError] (TaskPanel& t)
+            {
+                const auto result = ctx.engine->renderToFile (renderFile, 0.0, endBeat, bitDepth, sampleRate,
+                                                              false, [&t] (float p) { t.setProgress (p); });
+                if (result.failed())
+                    *renderError = result.getErrorMessage();
+            },
+            [this, extension, index, resolvedSoFar, then, renderFile, renderError]() mutable
+            {
+                if (renderError->isNotEmpty())
                 {
                     juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
-                                                            TRANS ("Export failed"), error, TRANS ("OK"), &owner);
+                                                            TRANS ("Render failed"), *renderError,
+                                                            TRANS ("OK"), &owner);
+                    renderFile.deleteFile();
                     return;
                 }
-                showDawProjectWarnings (warnings);
+
+                resolvedSoFar[extension.additionalInputs[index].envVar] = renderFile.getFullPathName();
+                gatherAdditionalInputs (extension, index + 1, std::move (resolvedSoFar), std::move (then));
+            });
+        }
+
+        /** Any additionalInputs value that was a temp render file (not a
+            user-picked one) should not be left behind. mixdownRender is
+            currently the only kind that creates one, and its envVar names
+            are only known via extension.additionalInputs - clean up every
+            resolved path whose kind was mixdownRender. Shared by
+            finishExportViaExtension's completion lambda and the
+            settings-dialog cancel path in exportViaExtension, since a
+            mixdownRender temp file can exist before the settings dialog
+            (and therefore finishExportViaExtension) ever runs. */
+        void deleteMixdownRenderTemps (const FormatExtension& extension,
+                                       const std::map<juce::String, juce::String>& resolved)
+        {
+            for (const auto& input : extension.additionalInputs)
+                if (input.kind == AdditionalInputKind::mixdownRender)
+                    if (auto it = resolved.find (input.envVar); it != resolved.end())
+                        juce::File (it->second).deleteFile();
+        }
+
+        void finishExportViaExtension (const FormatExtension& extension, const juce::File& outputFile,
+                                       std::map<juce::String, juce::String> additionalInputs)
+        {
+            if (ctx.project == nullptr) return;
+
+            auto error = std::make_shared<juce::String>();
+            auto warnings = std::make_shared<juce::StringArray>();
+
+            // Off the message thread: an extension's own work (video encoding,
+            // for one) can run well past what's comfortable to block the UI
+            // for, and runFormatExtensionExport's own timeout is 120 seconds -
+            // without this, KANADE DAW would appear frozen/not-responding for
+            // however long that takes, exactly as exportAudio()'s render step
+            // already avoids for the same reason.
+            task.run (extension.name + " " + TRANS ("running..."),
+                      [this, extension, outputFile, additionalInputs, error, warnings] (TaskPanel& t)
+            {
+                ExternalFormatExtensionRunner runner;
+                io::runFormatExtensionExport (extension, *ctx.project, *ctx.plugins, outputFile,
+                                              additionalInputs, runner, *error, *warnings,
+                                              [&t] (float p) { t.setProgress (p); },
+                                              [&t] { return t.isCancelled(); });
+            },
+            [this, extension, additionalInputs, error, warnings]
+            {
+                deleteMixdownRenderTemps (extension, additionalInputs);
+
+                if (task.isCancelled())
+                    return;   // user hit Cancel - not a failure, nothing more to report
+
+                if (error->isNotEmpty())
+                {
+                    juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
+                                                            TRANS ("Export failed"), *error, TRANS ("OK"), &owner);
+                    return;
+                }
+                showDawProjectWarnings (*warnings);
             });
         }
 
@@ -1222,7 +1367,7 @@ namespace ss
     juce::StringArray MainComponent::getMenuBarNames()
     {
         return { TRANS ("File"), TRANS ("Edit"), TRANS ("Track"), TRANS ("Transport"),
-                 TRANS ("View"), TRANS ("AI"), TRANS ("Help") };
+                 TRANS ("View"), TRANS ("System Plugins"), TRANS ("AI"), TRANS ("Help") };
     }
 
     juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
@@ -1241,15 +1386,6 @@ namespace ss
                 menu.addCommandItem (&commands, CommandIDs::importAudio);
                 menu.addCommandItem (&commands, CommandIDs::importMidi);
                 menu.addCommandItem (&commands, CommandIDs::importDawProject);
-
-                if (impl->ctx.formatExtensions != nullptr)
-                {
-                    const auto importExtensions = impl->ctx.formatExtensions->matching (ExtensionDirection::importOnly);
-                    for (size_t i = 0; i < importExtensions.size(); ++i)
-                        menu.addItem ((int) (importExtensionMenuIdBase + i),
-                                      importExtensions[i]->name + " (." + importExtensions[i]->fileExtension + ")...");
-                }
-
                 menu.addSeparator();
                 {
                     juce::PopupMenu exportMenu;
@@ -1257,15 +1393,6 @@ namespace ss
                     exportMenu.addCommandItem (&commands, CommandIDs::exportAudio);
                     exportMenu.addCommandItem (&commands, CommandIDs::exportMusicXml);
                     exportMenu.addCommandItem (&commands, CommandIDs::exportDawProject);
-
-                    if (impl->ctx.formatExtensions != nullptr)
-                    {
-                        const auto exportExtensions = impl->ctx.formatExtensions->matching (ExtensionDirection::exportOnly);
-                        for (size_t i = 0; i < exportExtensions.size(); ++i)
-                            exportMenu.addItem ((int) (exportExtensionMenuIdBase + i),
-                                                exportExtensions[i]->name + " (." + exportExtensions[i]->fileExtension + ")...");
-                    }
-
                     menu.addSubMenu (TRANS ("Export"), exportMenu);
                 }
                 menu.addSeparator();
@@ -1325,15 +1452,49 @@ namespace ss
                 break;
 
             case 5:
+            {
+                bool anyItems = false;
+
+                if (impl->ctx.formatExtensions != nullptr)
+                {
+                    const auto importExtensions = impl->ctx.formatExtensions->matching (ExtensionDirection::importOnly);
+                    if (! importExtensions.empty())
+                    {
+                        menu.addSectionHeader (TRANS ("Import"));
+                        for (size_t i = 0; i < importExtensions.size(); ++i)
+                            menu.addItem ((int) (importExtensionMenuIdBase + i),
+                                          importExtensions[i]->name + " (." + importExtensions[i]->fileExtension + ")...");
+                        anyItems = true;
+                    }
+
+                    const auto exportExtensions = impl->ctx.formatExtensions->matching (ExtensionDirection::exportOnly);
+                    if (! exportExtensions.empty())
+                    {
+                        if (anyItems) menu.addSeparator();
+                        menu.addSectionHeader (TRANS ("Export"));
+                        for (size_t i = 0; i < exportExtensions.size(); ++i)
+                            menu.addItem ((int) (exportExtensionMenuIdBase + i),
+                                          exportExtensions[i]->name + " (." + exportExtensions[i]->fileExtension + ")...");
+                        anyItems = true;
+                    }
+                }
+
+                if (anyItems)
+                    menu.addSeparator();
+
+                menu.addCommandItem (&commands, CommandIDs::showExtensionHelp);
+                break;
+            }
+
+            case 6:
                 menu.addCommandItem (&commands, CommandIDs::transcribeSelection);
                 menu.addCommandItem (&commands, CommandIDs::generateFromSelection);
                 menu.addSeparator();
                 menu.addCommandItem (&commands, CommandIDs::rescanPlugins);
                 break;
 
-            case 6:
+            case 7:
                 menu.addItem (20001, TRANS ("About KANADE DAW"));
-                menu.addCommandItem (&commands, CommandIDs::showExtensionHelp);
                 break;
 
             default:
@@ -1700,7 +1861,7 @@ namespace ss
             case CommandIDs::showExtensionHelp:
                 info.setInfo (TRANS ("How to build a format extension..."),
                               TRANS ("Shows the manifest schema and command-line contract for format extensions"),
-                              TRANS ("Help"), 0);
+                              TRANS ("System Plugins"), 0);
                 break;
 
             default:

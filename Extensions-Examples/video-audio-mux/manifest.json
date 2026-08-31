@@ -1,0 +1,32 @@
+{
+  "id": "com.kanade-daw-examples.video-audio-mux",
+  "name": "Video + Audio Mux",
+  "version": "1.1.0",
+  "fileExtension": "mp4",
+  "direction": "export",
+  "executable": "video-audio-mux.exe",
+  "customUI": false,
+  "additionalInputs": [
+    {
+      "kind": "userFile",
+      "envVar": "KANADE_DAW_VIDEO_FILE",
+      "prompt": "Video file to combine with",
+      "fileFilter": "*.mp4"
+    },
+    {
+      "kind": "mixdownRender",
+      "envVar": "KANADE_DAW_MIXDOWN_WAV"
+    }
+  ],
+  "settings": [
+    {
+      "id": "mixBalance",
+      "label": "音声ミックスバランス（0=元動画優先 / 1=DAW音声優先）",
+      "type": "slider",
+      "envVar": "MUX_MIX_BALANCE",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.5
+    }
+  ]
+}
